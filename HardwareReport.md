@@ -280,3 +280,62 @@ And be because it's targeting to C functions, you have to write `extern "C"`:
 ```cpp
 extern "C" void app_main(void) {}
 ```
+
+## 2026-04-12 19:05:56:<br>Category: Development report<br>Topic: How to find a suitable part
+*https://www.lcsc.com/ is the professional website for purchasing electricity parts.*
+First, determind the requirements.
+For example, today when I was trying to find a model for my screen, I first determinded the dimension of the screen, and then which protocol it will use.
+When I had a clear idea about what I would buy, I went to searching. Through research, I found the website `ICSC`, which is the professional platform to buy parts.
+During the process of searching on it, I found out that electricity parts are actually cheaper then I thought.
+And a also found a very useful stratagy:
+**Look at the datasheet provided.**
+It always contains very useful informations, and often helps a lot.
+*(why did i feel like this is the most boring report i ever wrote?)*
+
+## 2026-04-12 19:16:48:<br>Category: PCB Structure<br>Topic: The Graphics Pipeline
+Since in hardware, or specificly, in embeded system such as ESP32, we don't get a GPU or a very big RAM.
+Therefore, we have to shrink the size of the screen to fit it in the tiny computation power and memory capacity of ESP32.
+The most common size of screens are 320x240 and 480x320. *which is absolute tiny comparing to modern technologies.*
+
+### the Framebuffer layout
+Since we don't have a GPU,*we are no longer drawing triangles,* we have to create the final frame buffer (raw screen pixel data) by ourself, or more accurately, by the CPU.
+Further, since we don't have a very big RAM, the pixels cannot be fully 32bit RGBA colors.
+The most common why to store the raw pixels is the RGB565 protocol (aka 16bit RGB).
+It have 5 bit each for Red and Blue, and 6 bit for Green *because science tells you that human eyes are more sensitive for color green then the other 2 colors.*
+you will be managing you own buffer, and use an API to draw.
+
+### the PCB Connection
+Between the screen and the ESP32, there are exactly 13 connections / lines for the 8-bit parallel data bus, which is the most optimal solution for a screen on ESP32.
+8 of them (D0 ~ D7) are for direct data transfer. Which each of them is one bit, and together they send 1 byte each pulse, and each pixel will take 2 pulse.
+and the rest 5 are controls:
+- CS (Chip select) is the *"Attention Pin"*. It indicates the specific device (in this case, the screen) is listening if it's low. If CS is high, it will **ignore** all the data on the data lines.
+- RSDC (Register Select / Draw Command) is the *"mode selector"*. It indicates the next byte is an instruction if it's low, and the next byte is a pixel data if it's high. *But this pin cannot be high for all the times. during specific phases of rendering, it need to be low and some commands need to be sent.*
+- WR (Write) is the write clock for the 8 bit data bus. it will go high and low very frequently. In fact, the faster it swaps between high and low will determind how fase the data bus is. Because each pulse (it goes low and back high: 2 state changes) will triger the device to fetch the data once.
+- RD (Read) is the read clock. Basically, since we never read from the screen, it's always tied high (Pulled up).
+- RST (Reset) will reset the screen from hardware. It's usually used before everything, duing init time.
+And there are also the VCC and GND pins, which results a total of 15 pins from the screen, and the allocation of 12 GPIO pins(VCC, GND and RD are excluded).
+
+### The full pipeline
+To draw a pixel on the screen:
+1. CS goes LOW (Hey screen, listen up!)
+2. RS/DC goes HIGH (I'm sending pixel data, not a command.)
+3. D0-D7 bits are set to the first half of the green color.
+4. WR pulses LOW → HIGH (Screen grabs the first 8 bits).
+5. D0-D7 bits are set to the second half of the green color.
+6. WR pulses LOW → HIGH (Screen grabs the second 8 bits).
+7. CS goes HIGH (I'm done for now).
+
+## 2026-04-12 19:57:22:<br>Category: Personal Journal<br>Topic: Search term and common prize for a screen
+Search term: `"320x240 2.8 LCD, OLED, Graphic RoHS"`
+Prize: $3 ~ $8. pay attention at the protocol and whether it have touch pad or not. avoid the ones with `I2C` and `touch pads`.
+
+
+
+
+## 2026-04-12 20:29:02:<br>Category: Hardware Programming<br>Topic: Fixing the damn ESP-IDF CMake system - make it compatible with standard CMake libraries
+
+
+CMake
+`${COMPONENT_LIB}`
+
+## 2026-04-12 14:40:50:<br>Category: Personal Journal<br>Topic: The design idea struggle

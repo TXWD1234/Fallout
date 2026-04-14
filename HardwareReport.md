@@ -309,14 +309,14 @@ Between the screen and the ESP32, there are exactly 13 connections / lines for t
 8 of them (D0 ~ D7) are for direct data transfer. Which each of them is one bit, and together they send 1 byte each pulse, and each pixel will take 2 pulse.
 and the rest 5 are controls:
 - CS (Chip select) is the *"Attention Pin"*. It indicates the specific device (in this case, the screen) is listening if it's low. If CS is high, it will **ignore** all the data on the data lines.
-- RSDC (Register Select / Draw Command) is the *"mode selector"*. It indicates the next byte is an instruction if it's low, and the next byte is a pixel data if it's high. *But this pin cannot be high for all the times. during specific phases of rendering, it need to be low and some commands need to be sent.*
+- RSDC (Register Select / Draw Command) or DC (Data / Command) is the *"mode selector"*. It indicates the next byte is an instruction if it's low, and the next byte is a pixel data if it's high. *But this pin cannot be high for all the times. during specific phases of rendering, it need to be low and some commands need to be sent.*
 - WR (Write) is the write clock for the 8 bit data bus. it will go high and low very frequently. In fact, the faster it swaps between high and low will determind how fase the data bus is. Because each pulse (it goes low and back high: 2 state changes) will triger the device to fetch the data once.
 - RD (Read) is the read clock. Basically, since we never read from the screen, it's always tied high (Pulled up).
 - RST (Reset) will reset the screen from hardware. It's usually used before everything, duing init time.
 And there are also the VCC and GND pins, which results a total of 15 pins from the screen, and the allocation of 12 GPIO pins(VCC, GND and RD are excluded).
 
 ### The full pipeline
-To draw a pixel on the screen:
+To draw a pixel on the screen: (a draw call1)
 1. CS goes LOW (Hey screen, listen up!)
 2. RS/DC goes HIGH (I'm sending pixel data, not a command.)
 3. D0-D7 bits are set to the first half of the green color.
@@ -329,13 +329,22 @@ To draw a pixel on the screen:
 Search term: `"320x240 2.8 LCD, OLED, Graphic RoHS"`
 Prize: $3 ~ $8. pay attention at the protocol and whether it have touch pad or not. avoid the ones with `I2C` and `touch pads`.
 
+# 2026-04-13
 
+## 2026-04-13 21:24:36:<br>Category: Hardware Programming<br>Topic: Fixing the damn ESP-IDF CMake system - make it compatible with standard CMake libraries
+*Because ESP-IDF have it's own CMake wrapper system, it's not compatible with other CMake libraries. And I HATE that so much.*
+In order to fix this problem, the easiest way is to use the fundamental standard CMake system to link the libraries.
 
-
-## 2026-04-12 20:29:02:<br>Category: Hardware Programming<br>Topic: Fixing the damn ESP-IDF CMake system - make it compatible with standard CMake libraries
-
+### The fundational structure of ESP-IDF's CMake system
+In ESP-IDF's CMake system, targets are abstarted into "components".
+And each component, basically wraps a STATIC library object.
+And at build time, all of those libraries will be linked to an internal executable, including the `main` component.
+*Actually, it's the `main` component will be linked to the internal executable, and everything*
 
 CMake
 `${COMPONENT_LIB}`
+
+
+
 
 ## 2026-04-12 14:40:50:<br>Category: Personal Journal<br>Topic: The design idea struggle

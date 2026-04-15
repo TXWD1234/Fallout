@@ -55,24 +55,24 @@ function(tx_add_txlib_components)
 	    include(FetchContent)
 
 	    FetchContent_Declare(
-	        TXLib # declared name (you define it)
-	        GIT_REPOSITORY https://github.com/TXWD1234/TXLib.git # url of the targeting repo
-	        GIT_TAG main # set the version of the targeting repo
+	        TXLib
+	        GIT_REPOSITORY "https://github.com/TXWD1234/TXLib.git"
+	        GIT_TAG "main"
+			SOURCE_SUBDIR "TXCMakeUtils"
 	    )
+		# SOURCE_SUBDIR to work around the MakeAvailable
 
+    	FetchContent_MakeAvailable(TXLib)
 		FetchContent_GetProperties(TXLib)
-    	if(NOT txlib_POPULATED)
-    	    FetchContent_Populate(TXLib)
 
-    	    foreach(comp IN LISTS TX_COMPONENTS)
-    	        if(EXISTS "${txlib_SOURCE_DIR}/${comp}/CMakeLists.txt")
-    	            message(STATUS "TXLib: Adding component [${comp}]")
-    	            add_subdirectory("${txlib_SOURCE_DIR}/${comp}" "${txlib_BINARY_DIR}/${comp}")
-    	        else()
-    	            message(WARNING "TXLib: Component [${comp}] not found in source!")
-    	        endif()
-    	    endforeach()
-    	endif()
+    	foreach(comp IN LISTS TX_COMPONENTS)
+    	    if(EXISTS "${txlib_SOURCE_DIR}/${comp}/CMakeLists.txt")
+    	        message(STATUS "TXLib: Adding component [${comp}]")
+    	        add_subdirectory("${txlib_SOURCE_DIR}/${comp}" "${txlib_BINARY_DIR}/${comp}")
+    	    else()
+    	        message(WARNING "TXLib: Component [${comp}] not found in source!")
+    	    endif()
+    	endforeach()
 
 		set(TXLib "${txlib_SOURCE_DIR}" PARENT_SCOPE)
 	endif()

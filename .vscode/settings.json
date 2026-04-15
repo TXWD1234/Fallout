@@ -1,3 +1,7 @@
 {
-	"cmake.sourceDirectory": "/home/TX_Jerry/Documents/Fallout/Software"
+	"cmake.sourceDirectory": "/home/TX_Jerry/Documents/Fallout/Software",
+	"idf.currentSetup": "/home/TX_Jerry/.espressif/v6.0/esp-idf",
+	"idf.projectPath": "${workspaceFolder}/Software",
+	"idf.buildPath": "${workspaceFolder}/Software/build",
+	"idf.saveScope": "workspace"
 }

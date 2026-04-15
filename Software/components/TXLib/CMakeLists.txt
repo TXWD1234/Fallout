@@ -11,4 +11,5 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
 	target_link_libraries(${COMPONENT_LIB} INTERFACE
 		TXMath
 	)
+	message(STATUS "Done adding TXLib.")
 endif()

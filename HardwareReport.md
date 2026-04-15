@@ -337,12 +337,60 @@ In order to fix this problem, the easiest way is to use the fundamental standard
 
 ### The fundational structure of ESP-IDF's CMake system
 In ESP-IDF's CMake system, targets are abstarted into "components".
-And each component, basically wraps a STATIC library object.
+And each component, basically wraps a CMake library target.
 And at build time, all of those libraries will be linked to an internal executable, including the `main` component.
-*Actually, it's the `main` component will be linked to the internal executable, and everything*
+*Actually, it's the `main` component will be linked to the internal executable, and everything will be linked to the `main` component.*
+And since a component contains a project, we can just make a component that links to the library. And then the entire thing will be connected with the ESP-IDF's CMake system.
 
-CMake
-`${COMPONENT_LIB}`
+### Making the "Umbrella Component"
+*It's actually pretty staright forward.*
+Since a ESP-IDF component have an internal CMake library target, we can just use the standard CMake way to link our libraries to the underlying CMake target directly.
+
+#### `${COMPONENT_LIB}`
+Huge thanks to who ever decide to add this entry, it's a direct access to the underlying target of a component in the component's CMakeLists.txt.
+Yes, this variable literally represents the underlying target of a ESP-IDF component.
+
+#### Linking the library
+Since we have access to a CMake target, everything become so much easier, we can just do this:
+```c
+add_subdirectory("${TXLib}")
+target_link_libraries(${COMPONENT_LIB} INTERFACE
+	TXMath
+)
+```
+But also, we need to register the component in order to access it's underlying target (basically defining the target).
+We usually do that after the `add_subdirectory()`:
+```c
+add_subdirectory("${TXLib}")
+idf_component_register()
+target_link_libraries(${COMPONENT_LIB} INTERFACE
+	TXMath
+)
+```
+
+#### The Script phase pitfall
+The ESP-IDF CMake system runs the CMakeLists.txt multiple times.
+Sometimes it would be some specific mode, that forbidden some operations, such as the `SCRIPT_MODE`.
+So make sure to wrap the include code in `if (!isScriptMode)`, but in CMake... hehe.
+```c
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+	add_subdirectory("${TXLib}")
+endif()
+
+idf_component_register()
+
+if(NOT CMAKE_SCRIPT_MODE_FILE)
+	target_link_libraries(${COMPONENT_LIB} INTERFACE
+		TXMath
+	)
+endif()
+```
+
+
+
+
+
+
 
 
 

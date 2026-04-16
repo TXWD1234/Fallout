@@ -386,8 +386,51 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
 endif()
 ```
 
+# 2026-04-14 21:55:50
 
+## 2026-04-14 21:55:54:<br>Category: Personal Report<br>Topic: Stage report
+When I get more into the ESP-IDF development system, I got less passionated about the hardware programming part.
+Purely becauset the in convinency and the lack of discipline for the IDE.
+For something like OpenGL, even it do have very bad API design, it's wrappable, I can make beautiful API on top of it.
+But ESP-IDF is the IDE itself, and I got no way to wrap or fix it.
+The only thing i can do it to work around it or cheese or hack it.
+Whatever way, it's not the most elegant way of doing it.
+I would put the API design of ESP-IDF as a bad design.
+But still, i am relying on it, since it's almost the only thing i can use to create ESP projects.
+I've thought of switching to someting like Raspberry Pi, but it's way too complicated and **expensive**.
+As to today, I've started learning hardware for 6 days. And all of them are centered around ESP32.
+I don't want to change it mid way, not only because the reason above, more importantly:
+**I just need to make the project. and how i can achieve it is not in consideration.**
+Hardware is not like software, where i can build libraries and learn libraries and use it over and over again.
+In hardware, one chip is one chip, you cannot reuse a chip in different projects.
+**It's not reproducable.**
+So the chance for me to change the chip type for next time will be very high, almost certain, but for this time, there's no time and necessarity to change it.
 
+---
+And these two days, I've been dealing with CMake and ESP-IDF to make the development environment "usable".
+I have some problem remaining, waiting for me to fix, but the major problems are conquered.
+I think I can be back to production by the end of tomorrow.
+And then, it's just learning the Software APIs, and wrap them —— which I am pretty good at.
+But for now, I'll say: Good night! 
+
+# 2026-04-15
+
+## 2026-04-15 20:15:23:<br>Category: Hardware Programming<br>Topic: The ESP-IDF include system
+*In old tutorials, it often says to use the `driver` component. But in modern ESP, we have splited the giant driver component into multiple components.*
+*Since CMake don't have Intellisense or suggestions (damn it!), you can see the components list in "~/.espressif/v6.0/esp-idf/components/"*
+
+In ESP-IDF, components are like CMake libraries, you include, or `REQUIRES` them when declaring a component (via `idf_component_register`).
+After `REQUIRES`ed the component, you then can include the headers inside them.
+**Attension, when including in source code, remember to put the component name before the path, as a parent directory.**
+
+### Some common components and headers
+| Component | Headers |
+|-|-|
+`esp_driver_gpio` | `"driver/gpio.h"`
+`esp_timer`       | `"esp_timer.h"`
+`esp_system`      | `"esp_heap_caps.h"`
+
+*Notice: ESP-IDF also have the recursive inclusion thing, since everything is public, the child component will have everything the parent component have. Therefore even if you didn't include some component explicitly, you might still be able to use them.*
 
 
 

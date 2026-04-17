@@ -3,5 +3,8 @@
 	"idf.currentSetup": "/home/TX_Jerry/.espressif/v6.0/esp-idf",
 	"idf.projectPath": "${workspaceFolder}/Software",
 	"idf.buildPath": "${workspaceFolder}/Software/build",
-	"idf.saveScope": "workspace"
+	"idf.saveScope": "workspace",
+	"idf.openOcdConfigs": [
+		"board/esp32s3-builtin.cfg"
+	]
 }

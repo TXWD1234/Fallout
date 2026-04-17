@@ -432,6 +432,53 @@ After `REQUIRES`ed the component, you then can include the headers inside them.
 
 *Notice: ESP-IDF also have the recursive inclusion thing, since everything is public, the child component will have everything the parent component have. Therefore even if you didn't include some component explicitly, you might still be able to use them.*
 
+# 2026-04-16
+
+## 2026-04-16 21:09:27:<br>Category: Hardware Programming<br>Topic: The General Pipeline Overview
+The ESP32 API set have 3 major "Component" *(not the actual ESP-IDF component, but literally components)*:
+- GPIO control
+- Hardware Peripherals
+- Heap / Memory management
+- Communication / Protocols
+And a bunch of utility components, such as `esp_timer`.
+
+### GPIO control
+It's just controlling the GPIO pins to switch between 0 and 1, and also read what it is currently.
+It's the fundamental backbone of the ESP32's communication system.
+The GPIO is the most low level software control over the silicon signals.
+It's often wrapped heavily by other components and high level APIs such as `esp_lcd`.
+Therefore normally for common usage you won't need to touch GPIO APIs.
+But as if you want any specifc or customized protocol that's not a common protocol, you would need to use the fundational APIs - the GPIO APIs.
+
+### Hardware Peripherals
+**Silicon Magic.** They are some specifc hardcoded curcuits in the chip that perform specific tasks.
+They consist:
+- timer
+- I2C
+- SPI
+They utilize the GPIO pins and process the data the user gives them, and do the job faster then software.
+*Instead of CPU doing everything, there are some very common functions was made into silicon magic, so they are ultra fast, and everyone uses it.*
+
+### Heap management
+In the world of ESP32, standard C `malloc` ~~will not work.~~*works but buns.*
+Therefore the default `std::vector` and such will ~~not work too~~*be buns too*.
+You have to use the ESP memory APIs to manage your own memory.
+*Programs are all about manipulating memory.*
+
+### Communication
+Using the GPIO pins, for the ESP32 board to connect to the other components, such as screen and keyboards.
+It consist of 3 parts:
+- Panel - The handle or software manager class of the actual component (class representation of the actual part)
+- IO - The point-to-point connection of a GPIO pin to the according pin of the actual hardware part.
+- Bus - The manager of IOs, that defines a specific protocol, and toggle signals in that protocol according to the data you provided it.
+Each part usually have a handle. it's the handle of the struct that stores the informations. and a config struct, which will be applied to a handle by a specific API.
+
+
+
+lights: backlights - brightness and power usage
+
+timer: esp_timer and ledc_timer_config_t
+
 
 
 

@@ -473,6 +473,254 @@ It consist of 3 parts:
 - Bus - The manager of IOs, that defines a specific protocol, and toggle signals in that protocol according to the data you provided it.
 Each part usually have a handle. it's the handle of the struct that stores the informations. and a config struct, which will be applied to a handle by a specific API.
 
+# 2026-04-17
+
+## 2026-04-17 17:45:22:<br>Category: Hardware Programming<br>Topic: GPIO Control
+There are 2 sets of initialization for GPIO control:
+- Direct Immediate functions
+- Init-time baked configuration
+
+### The system and the attributes
+Just like many other big system *(im referencing OpnGL here)*, ESP-IDF's GPIO control system is controled by handles and attributes.
+Each pin has it's own pin number. Sometimes it's bitmask, sometimes it's an index number. *The pin number is representing the IO number on the chip.*
+And each pin have it's own configurations, which could be set using functions or a config class.
+The available attributes are:
+- mode: the IO mode: either input, output, or both way
+  	```
+  	GPIO_MODE_INPUT        // input
+	GPIO_MODE_OUTPUT       // output
+	GPIO_MODE_OUTPUT_OD    // open-drain
+	GPIO_MODE_INPUT_OUTPUT // both way
+	```
+- enabling pull up / enabling pull down
+- type of interruption *(see interrupt section below)*
+	```
+	GPIO_INTR_DISABLE    // disable
+	GPIO_INTR_POSEDGE    // when become 1
+	GPIO_INTR_NEGEDGE    // when become 0
+	GPIO_INTR_ANYEDGE    // when state change
+	GPIO_INTR_LOW_LEVEL  // when is 0 (repeative)
+	GPIO_INTR_HIGH_LEVEL // when is 1 (repeative)
+	```
+
+#### Id system
+IDs in GPIO controls are just integers. Defined by `GPIO_NUM_n` enum.
+When involving multiple ids, it becomes bit mask:
+`0b0001` <- this is GPIO 1.
+`0b1000` <- this is GPIO 4.
+*Usually you can do: `1uLL << n`.*
+
+### Direct Immediate functions
+
+#### configuration
+
+`gpio_set_direction(id, value)`
+
+Set the direction *(mode)* of the indicated pin.
+
+`gpio_set_pull_mode(id, value)`
+
+Set the pull mode for the indicated pin.
+Option available:
+```
+GPIO_PULLUP_ONLY
+GPIO_PULLDOWN_ONLY
+GPIO_PULLUP_PULLDOWN
+GPIO_FLOATING
+```
+
+#### direct access
+
+`gpio_get_level(id)`
+
+Get the indicated pin's current state.
+Return 1 or 0.
+
+`gpio_set_level(id, level)`
+
+Set the indicated pin's current state.
+`level`: 0 or 1
+
+### Init-time baked configuration
+*You set the config once, and it runs forever.*
+```c
+struct gpio_config_t {
+    uint64_t pin_bit_mask; // bit masked pin numbers
+    gpio_mode_t mode; // mode
+    gpio_pullup_t pull_up_en; // boolean
+    gpio_pulldown_t pull_down_en; // boolean
+    gpio_int_type_t intr_type; // interrupt type (see interrupt section below)
+};
+```
+You construct an object of this struct, configure it, and then pass it to `gpio_config()`, and then it's stored in the hardware register forever, and the GPIO pins you specified will run according to these rules.
+*Look at these enums and functions and structs, back to WindowsAPI i guess... —— TX_Jerry*
+
+`gpio_config(&config)`
+
+Take in a pointer of a `gpio_config_t` object and set the configuration of the selected GPIO pins (defined in the struct).
+
+#### Attributes
+
+`pin_bit_mask`
+
+The pins that you intend to apply this config to.
+This value is bitmasked pin numbers (`1uLL << n`) combined together with bit or.
+For example:
+```cpp
+pin_bit_mask = (1uLL << 1) | (1uLL << 2); // pin 1 and 2
+```
+or
+```cpp
+pin_bit_mask = 0b11 << 1; // pin 1 and 2
+```
+
+`mode`
+
+The io mode of the pin.
+Available options:
+```cpp
+GPIO_MODE_INPUT        // input
+GPIO_MODE_OUTPUT       // output
+GPIO_MODE_OUTPUT_OD    // open-drain
+GPIO_MODE_INPUT_OUTPUT // both way
+```
+
+`pull_up_en` / `pull_down_en`
+
+*It's just booleans. Ignore the enums, they are just int values.*
+Enable or disable the pull up / pull down.
+
+`intr_type`
+
+*see interrupt section below.*
+
+### Interrupt - The callback system
+
+The interrupt feature is basically the callback system / event driven system of ESP-IDF.
+*Similar to GLFW and Qt,* You can register a function pointer to be called when a selected state change happens.
+So in summary (of the one sentence above), you have 2 things to configure: **what** function to call, and **when**
+
+#### APIs
+
+`gpio_install_isr_service(0)`
+
+*Just call this at the init-time before using interrupt stuff.*
+Initialization of interrupt and the entire callback system.
+
+*In `gpio_config_t`:*
+`intr_type`
+
+Set the **When** attribute of the callback function for the pin selected.
+Available attributes:
+```cpp
+GPIO_INTR_DISABLE    // disable
+GPIO_INTR_POSEDGE    // when become 1
+GPIO_INTR_NEGEDGE    // when become 0
+GPIO_INTR_ANYEDGE    // when state change
+GPIO_INTR_LOW_LEVEL  // when is 0 (repeative)
+GPIO_INTR_HIGH_LEVEL // when is 1 (repeative)
+```
+
+`gpio_set_intr_type(id, value)` (Immediate)
+
+Set the `intr_type` of a specific pin.
+
+`gpio_isr_handler_add(id, funcPtr, nullptr)`
+
+Register a callback function to a pin id.
+`id`: the targeting pin id. just integer
+
+#### **Important Note**
+
+The function for call back often need to have `IRAM_ATTR` attribute:
+```cpp
+void IRAM_ATTR callback() { ... }
+```
+It makes ESP32 puts it in Instruction RAM instead of flash, avoiding crashes when flash memory is not available.
+
+---
+And also, notice that the callback system is not a software driven, but a hardware driven thing.
+The callback function is running in restricted condition, so **don't put somthing like `malloc`.**
+
+### Other APIs
+
+`gpio_reset_pin(id)`
+
+Reset the selected pin.
+
+## 2026-04-17 19:57:06:<br>Category: Hardware Programming<br>Topic: Heap Management
+*now we are talking! —— TX_Jerry*
+Heap management in ESP32 have 2 major parts:
+- Querying
+- Allocating
+***Notice that the standard `malloc` and `std::vector` still works, it's just not work that fine since you cannot set specifc attributes, and also: Fragmentation is a important thing now.***
+
+### Caps
+
+*Basically attributes of the buffer (yeah my brain is full of OpenGL concepts).*
+Caps (Capability constraint) will tell the allocator the capabilities this memory mush have.
+If there's no satisfied memory, it will just return `nullptr`.
+Caps can be combined with bit or.
+Available Options:
+```cpp
+MALLOC_CAP_8BIT      // normal data access
+MALLOC_CAP_32BIT     // 32-bit aligned
+MALLOC_CAP_INTERNAL  // internal RAM (fast)
+MALLOC_CAP_SPIRAM    // external PSRAM
+MALLOC_CAP_DMA       // usable by DMA
+MALLOC_CAP_EXEC      // executable (IRAM)
+```
+
+### Querying
+
+`heap_caps_get_free_size(caps)`
+
+Get the current total free memory of certain constraints (caps).
+`@return`: size_t
+
+`heap_caps_get_largest_free_block(caps)`
+
+Get the biggest continuous block of memory that satisfies the provided contraints.
+`@return`: size_t
+
+`heap_caps_check_integrity_all(print_errors)`
+
+Check for memory corruptions and invalid writes.
+`@return`: boolean -> good bit / bad bit
+
+### Allocating
+
+*Basically just standard C APIs but with `heap_caps_` prefix, and an additional parameter: `caps`.*
+It supports most of the standard C allocation APIs:
+```c
+void* malloc(size_t size);
+void free(void* ptr);
+void* calloc(size_t n, size_t size);
+void* realloc(void* ptr, size_t size);
+```
+but with prefix and caps:
+```c
+void* heap_caps_malloc(size_t size, uint32_t caps);
+void heap_caps_free(void* ptr);
+void* heap_caps_calloc(size_t n, size_t size, uint32_t caps);
+void* heap_caps_realloc(void* ptr, size_t size, uint32_t caps);
+```
+
+### DMA
+
+DMA(Direct Memory Access) allows Hardware Peripherals to directly fetch data from the RAM memory.
+It makes a lot operations much faster, such as sending data to a bus, or use specific protocols.
+But DMA would require:
+- specifc region in RAM
+- and continguous memory
+
+
+
+
+
+Heap Statistics and Memory layout
+
+
 
 
 lights: backlights - brightness and power usage

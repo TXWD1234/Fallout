@@ -476,6 +476,10 @@ Each part usually have a handle. it's the handle of the struct that stores the i
 # 2026-04-17
 
 ## 2026-04-17 17:45:22:<br>Category: Hardware Programming<br>Topic: GPIO Control
+```cpp
+#include "driver/gpio.h"
+```
+
 There are 2 sets of initialization for GPIO control:
 - Direct Immediate functions
 - Init-time baked configuration
@@ -649,6 +653,10 @@ The callback function is running in restricted condition, so **don't put somthin
 Reset the selected pin.
 
 ## 2026-04-17 19:57:06:<br>Category: Hardware Programming<br>Topic: Heap Management
+```cpp
+#include "esp_heap_caps.h"
+```
+
 *now we are talking! —— TX_Jerry*
 Heap management in ESP32 have 2 major parts:
 - Querying
@@ -714,6 +722,86 @@ But DMA would require:
 - specifc region in RAM
 - and continguous memory
 
+# 2026-04-18
+
+## 2026-04-18 13:02:10:<br>Category: Hardware Programming<br>Topic: Logging System
+```cpp
+#include "esp_log.h"
+```
+
+*Notice that normal `printf` and `cout` still works, but using the native ESP_LOG is just better practice for structure and stablity.*
+The syntax of `ESP_LOG*` functions are fairly similar to the standard C `printf`, but they have a parameter before everything:
+```cpp
+ESP_LOGI("Main", ...); // there's one more parameter before the regular `printf` parameters
+```
+The new parameter is the "Tag" of this log message. It would be printed with the message in some default format.
+The usual practice is define a `constexpr const char* tag` string and use that through out the process.
+
+---
+You probably noticed that I used `ESP_LOGx`. That means there are multiple function with the same parameter set and the `ESP_LOG` prefix.
+**Each of these function is correspnding to a log level.**
+There are 5 of these functions:
+| Level         | Use                   |
+| ------------- | --------------------- |
+| `E` - Error   | something broke       |
+| `W` - Warning | something suspicious  |
+| `I` - Info    | normal important info |
+| `D` - Debug   | debugging details     |
+| `V` - Verbose | spam-level detail     |
+
+## 2026-04-19 00:20:43:<br>Category: Development Report<br>Topic: The heap layout and Statistics experiment
+*What i used to be told is that ESP32's heap is really fragmented, and very small. The usable space have only 140kb.*
+
+Here's the test code:
+```cpp
+#include "esp_log.h"
+#include "esp_heap_caps.h"
+
+
+extern "C" void app_main(void) {
+	size_t heapCapacity = heap_caps_get_free_size(MALLOC_CAP_8BIT),
+	       internalCapacity = heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+	       dmaCapacity = heap_caps_get_free_size(MALLOC_CAP_DMA),
+	       heapChunk = heap_caps_get_largest_free_block(MALLOC_CAP_8BIT),
+	       internalChunk = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+	       dmaChunk = heap_caps_get_largest_free_block(MALLOC_CAP_DMA);
+
+	ESP_LOGI("Jerry", "Current Heap Capacity: %u", heapCapacity);
+	ESP_LOGI("Jerry", "Current Internal Capacity: %u", internalCapacity);
+	ESP_LOGI("Jerry", "Current DMA Capacity: %u", dmaCapacity);
+	ESP_LOGI("Jerry", "Current Heap Chunk: %u", heapChunk);
+	ESP_LOGI("Jerry", "Current Internal Chunk: %u", internalChunk);
+	ESP_LOGI("Jerry", "Current DMA Chunk: %u", dmaChunk);
+}
+```
+And here's the log:
+```
+I (260) main_task: Calling app_main()
+I (260) Jerry: Current Heap Capacity: 401356
+I (260) Jerry: Current Internal Capacity: 401356
+I (260) Jerry: Current DMA Capacity: 393568
+I (270) Jerry: Current Heap Chunk: 335872
+I (270) Jerry: Current Internal Chunk: 335872
+I (280) Jerry: Current DMA Chunk: 335872
+I (280) main_task: Returned from app_main()
+```
+You can clearly see that indeed the biggest contiugous chunk is not same size as the total heap capacity, which indeed means that the heap is fragmented at stratup.
+But, The one contiguous chunk is big enough, and way bigger then my old hypothesis. 356kb is a decent number of memory, in the context of embeded system.
+Of course, this test is performed in the condition where things like wifi and LCD are not setted up, which means this is the pure and maximum memory it can possibly get.
+
+## 2026-04-19 00:26:44:<br>Category: Personal Journal<br>Topic: The Lapse crash
+Today, I had recorded 5 hours during afternoon, but when I tried to stop the recording, via pressing the stop button obviously, it didn't work: it purely refused to react, and nothing responded.
+So I tried close and then reopen the browser after pressing the stop button a few times, and then I end up in the resume menu.
+And then I clicked `submit`, and after that the progress bar came out, and it stoped at the `encryping session #1` stage, then a log poped out saying failure, something have to be smaller then 2GB.
+And I also tried resume and then stop again using the stop button, but it appears the same error.
+My hypothesis is that my lapse video is too big, since it's the longest one ive ever done: 5 hr. But I know other people that was doing more then 24 hours of lapsing, but still got away with it.
+So... im confused and sad right now, because I lost 5 hour of recording....
+
+
+## 2026-04-18 14:41:35:<br>Category: Hardware Programming<br>Topic: The Graphics API - ESP_LCD
+
+
+
 
 
 
@@ -727,7 +815,11 @@ lights: backlights - brightness and power usage
 
 timer: esp_timer and ledc_timer_config_t
 
-
+Screen:
+**480x320 - 10x5cm**
+https://www.lcsc.com/product-detail/C19632787.html?s_z=n_q_480%2a320%25203.5%2520LCD%252C%2520OLED%252C%2520Graphic&spm=wm.ssy.bg.20.xh&lcsc_vid=RFUPX1FSFlRfAVUCTlhdX1MHT1ZaUwZURVINUVZXQFExVlNRQVRdX1BXQFRZUzsOAxUeFF5JWBYZEEoKFBINSQcJGk4dAgUUFAk%3D
+**480x648 - 12x9cm**
+https://www.lcsc.com/product-detail/C41416471.html?s_z=n_q_LCD%252C%2520OLED%252C%2520Graphic&spm=wm.ssy.bg.43.xh&lcsc_vid=RFUPX1FSFlRfAVUCTlhdX1MHT1ZaUwZURVINUVZXQFExVlNRQVRdXlVRQlBeVzsOAxUeFF5JWBYZEEoKFBINSQcJGk4dAgUUFAk%3D
 
 
 

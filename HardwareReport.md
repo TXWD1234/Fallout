@@ -417,7 +417,7 @@ But for now, I'll say: Good night!
 
 ## 2026-04-15 20:15:23:<br>Category: Hardware Programming<br>Topic: The ESP-IDF include system
 *In old tutorials, it often says to use the `driver` component. But in modern ESP, we have splited the giant driver component into multiple components.*
-*Since CMake don't have Intellisense or suggestions (damn it!), you can see the components list in "~/.espressif/v6.0/esp-idf/components/"*
+*Since CMake don't have Intellisense or suggestions (damn it!), you can see the components list in `"~/.espressif/v6.0/esp-idf/components/"`*
 
 In ESP-IDF, components are like CMake libraries, you include, or `REQUIRES` them when declaring a component (via `idf_component_register`).
 After `REQUIRES`ed the component, you then can include the headers inside them.
@@ -797,17 +797,127 @@ And I also tried resume and then stop again using the stop button, but it appear
 My hypothesis is that my lapse video is too big, since it's the longest one ive ever done: 5 hr. But I know other people that was doing more then 24 hours of lapsing, but still got away with it.
 So... im confused and sad right now, because I lost 5 hour of recording....
 
+# 2026-04-19
 
-## 2026-04-18 14:41:35:<br>Category: Hardware Programming<br>Topic: The Graphics API - ESP_LCD
+## 2026-04-19 12:33:04:<br>Category: Hardware Programming<br>Topic: The Graphics API - `ESP_LCD`
+*`ESP_LCD` is a great example of the "Communication" component of the entire ESP32 general pipeline.*
+
+`ESP_LCD` is a framework for hardware display, **It's not a render engine.** It only:
+- Talk to the LCD driver
+- Send framebuffer (raw pixel data, that is **composed by you**)
+- manage bus communication
+Anything higher then raw pixel data will **not** be managed by `ESP_LCD`.
+*It's the next lower level then OpenGL.*
+*The job `ESP_LCD` is doing is put the raw framebuffer to the screen, so the starting point of `ESP_LCD` API calls should be after framebuffer is constructed.*
+
+### The 3 layer pipeline
+There are 3 layers in the entire pipeline, each on top of each other.
+- **Bus**
+	The lowest layer, representing the actual lines of connections.
+	It stores the metadata of pins, manages data transportation - basically just toggling the pins' on/off.
+	It manages protocol of communication between `ESP32` and the LCD screen, essentially *the pattern to toggle the pins.*
+- **IO**
+	The intermetiate layer, representing the formatting of the data transferring.
+- **Panel**
+	The highest layer, representing the actual driver of the LCD screen.
+	It's where you call all the top level API like draw call function and init funciton.
+
+### The API pipeline
+Each layer is a struct. It's inited with a function, where it *follows a standard C pattern, and* have you pass in the pointer to the object of that struct for the layer. In this case, the pointer parameter appears at the end of the function.
+Each layer would require the previous layer as a parameter to init. *(except the lowest layer)*
+After the Panel is inited, the layer below it is almost never touched again. All the operations will be done via the panel object.
+
+### The Bus & IO Init and Terminate pipeline
+**Init**
+```cpp
+esp_lcd_i80_bus_handle_t bus = nullptr;
+esp_lcd_i80_bus_config_t config_bus = {};
+esp_lcd_new_i80_bus(&config_bus, &bus);
+
+esp_lcd_panel_io_handle_t io = nullptr;
+esp_lcd_panel_io_i80_config_t config_io = {};
+esp_lcd_new_panel_io_i80(bus, &config_io, &io);
+```
+
+**Terminate**
+```cpp
+esp_lcd_panel_io_del(io);
+io = nullptr;
+esp_lcd_del_i80_bus(bus);
+bus = nullptr;
+```
+*well well well, look at the 2 delete functions, back to the inconsistent API hell... fortunately we don't have distinction between bind API and DSA API in ESP-IDF like what OpenGL has...*
+
+#### The config_t parameters
+**esp_lcd_i80_bus_config_t**
+```cpp
+struct esp_lcd_i80_bus_config_t {
+    int dc_gpio_num;           // data/command pin
+    int wr_gpio_num;           // write clock pin
+    int clk_src;               // clock source (just write `LCD_CLK_SRC_DEFAULT`)
+
+    int data_gpio_nums[16];    // parallel data pins (D0-D7 or D0-D15)
+    int bus_width;             // `8` for 8-bit or `16` for 16-bit (Attension, it's the bus width, which is the data pin count, not the RGB protocol)
+
+    size_t max_transfer_bytes; // DMA buffer limit (Unit: byte)
+};
+```
+
+**esp_lcd_panel_io_i80_config_t**
+```cpp
+struct esp_lcd_panel_io_i80_config_t {
+    int cs_gpio_num;                  // chip select (CS pin number)
+    int pclk_hz;                      // pixel clock speed (usually 10 ~ 20)
+
+    int trans_queue_depth;            // DMA queue size (usually 10 Mhz, which is `10 * 1000 * 1000`)
+
+    int lcd_cmd_bits;                 // usually 8
+    int lcd_param_bits;               // usually 8
+
+    void (*on_color_trans_done)(...); // callback when finished
+    void *user_ctx;                   // don't care about this
+};
+```
+
+### The IO operations
+
+`esp_lcd_panel_io_tx_param(io, command, parameter, parameterCount)`
+
+Send a command and it's corrisponding parameters to the LCD screen.
+*This function is the lower level function that `esp_lcd_panel_*` is using.*
+It directly talk to the LCD screen, while using the protocol that the IO object is managing, so that you don't need to worry about it.
+**Parameters**
+`io`: The IO object
+`command`: The command that's targeted to execute. type: `int`, it's defined by the driver type of the LCD that you are using. *(More of it in the future)*
+`parameter`: The parameters about the command, type: `void*`. also defined by the driver type.
+`parameterCount`: literally, parameter count.
+
+`esp_lcd_panel_io_tx_color(io, command, data, dataLength)`
+*The parameter signature of this function is exactly the same as `esp_lcd_panel_io_tx_param`, but they serve for different purposes.*
+As if `esp_lcd_panel_io_tx_param` serves for command, this function serves for data transfer.
+Specificly, **sending the raw pixel data.**
+In this function, the `command` parameter is usually `0x2C`, which stands for **memory write**.
+
+### The Panel
+Because ESP_LCD don't support ILI9488 driver which is what i am using, so I decided to write my own driver...
+
+## 2026-04-19 13:58:58:<br>Category: Design Report<br>Topic: The Screen Grid
+The screen will have a width of 480px and height of 320px.
+Since the project only need to display text, acting as a terminal, the entire screen can be dedicated for text rendering, and nothing else need to considered.
+And since text are just retangles, abstract the entire screen into a grid system will be a good idea.
+
+The entire screen is mapped into a `24x8` grid system, which each grid has size of `20x40px`.
+Each grid is one ASCII character. It would have 4 pixels subtracted from width as horizontal margin (each side 2px), and 8 pixels from height for vertical margin (each side 4px), remaining a `16x32px` space for the actual text.
+The height of one character will be split into 3 parts: top (9px), center (14px), bottom (9px).
+
+*Or maybe move the bottom margin to the top? and maybe changet the parts to: top(8px), center(16px), bottom(8px)*
 
 
+## 2026-04-19 18:31:16:<br>Category: Hardware Programming<br>Topic: Making our own graphics driver - ILI9488
+### The begin of the problem
+**The stupid ESP_LCD do not support ILI9488.**
 
-
-
-
-
-Heap Statistics and Memory layout
-
+*If you want to build*
 
 
 
@@ -815,12 +925,12 @@ lights: backlights - brightness and power usage
 
 timer: esp_timer and ledc_timer_config_t
 
+
 Screen:
 **480x320 - 10x5cm**
 https://www.lcsc.com/product-detail/C19632787.html?s_z=n_q_480%2a320%25203.5%2520LCD%252C%2520OLED%252C%2520Graphic&spm=wm.ssy.bg.20.xh&lcsc_vid=RFUPX1FSFlRfAVUCTlhdX1MHT1ZaUwZURVINUVZXQFExVlNRQVRdX1BXQFRZUzsOAxUeFF5JWBYZEEoKFBINSQcJGk4dAgUUFAk%3D
 **480x648 - 12x9cm**
 https://www.lcsc.com/product-detail/C41416471.html?s_z=n_q_LCD%252C%2520OLED%252C%2520Graphic&spm=wm.ssy.bg.43.xh&lcsc_vid=RFUPX1FSFlRfAVUCTlhdX1MHT1ZaUwZURVINUVZXQFExVlNRQVRdXlVRQlBeVzsOAxUeFF5JWBYZEEoKFBINSQcJGk4dAgUUFAk%3D
-
 
 
 

@@ -912,18 +912,91 @@ The height of one character will be split into 3 parts: top (9px), center (14px)
 
 *Or maybe move the bottom margin to the top? and maybe changet the parts to: top(8px), center(16px), bottom(8px)*
 
+# 2026-04-20
 
-## 2026-04-19 18:31:16:<br>Category: Hardware Programming<br>Topic: Making our own graphics driver - ILI9488
+## 2026-04-20 21:51:39:<br>Category: Hardware Programming<br>Topic: Making our own graphics driver - ILI9488 Documentation
 ### The begin of the problem
-**The stupid ESP_LCD do not support ILI9488.**
+**The stupid ESP_LCD does not support ILI9488.**
 
-*If you want to build*
+### The Documentation - what save your life *(don't trust AI, always question)*
+*If you want to build a project with screen size 480x320 and Parallel 8080, most likely you will use ILI9488, and most likely you will require to write your own driver.*
+*And when it comes to hardware, you don't want to mess up, so the only reliable source of knowledge.*
+*(well actually testing results is also a thing...)*
+
+**Datasheet**
+https://www.hpinfotech.ro/ILI9488.pdf
+*You can literally find ILI9488 Data Sheet every where, this is just the one I am using.*
+
+**How to read it**
+*This is the main part.*
+
+You will see a whole bunch of weird things, and you probably don't understand it. *(I don't either.)*
+Well the best first step is turn to page 140, or search `5. Command`.
+This will lead you directly to the command table, which is the most useful part *(I think)* of the entire datasheet.
+You can find the usage and parameter descriptions here. More detailed information can be found after the table *(it's very long)*, in their respective sequence.
+
+**How to read the command parameter description**
+
+You see there are multiple rows, *(some of them may only have one, it's actually most of them have one)*, each row is a parameter, except the top row, which is the command data itself.
+*If a command only have one row, then it means it don't have any parameters.*
+The D1~D7 are the actual bit data of each pin. mostly you ignore that, but just read the hex value at the very right.
+
+*Because each parameter might be bigger then a byte, for example, an `u16`, which is 2 bytes. then you need to do a bit to bit trick to put them into individual bits.*
+
+# 2026-04-21
+
+## 2026-04-21 19:41:53:<br>Category: Hardware Programming<br>Topic: Timer system
+*There are multiple ways to either calculate duration or delay tasks. There's no perfect solution, each method serve for it's specifc purpose of usage. By the way, std::chrono might not work, or internally use them.*
+
+### `vTaskDelay`
+*Probably the simplest and most common used delay API in all methods.*
+Function from FreeRTOS, operated and managed by the system.
+The core logic of it is tell the schedualer that this thread / task is not running for a period of time.
+It's not the most precise one - in fact, because it relies on FreeRTOS's tick system, it's pretty *inaccurate*, **in the microsecond world.**
+It could be used for normal ms level delay, such as wait for a hardware to warm up, or force a sequence of execution.
+
+```cpp
+vTaskDelay(pdMS_TO_TICKS(500)); // 500 ms
+```
+
+`pdMS_TO_TICK(n)`
+
+Convert ms to FreeRTOS's tick.
+
+## 2026-04-21 23:17:25:<br>Category: Development Report<br>Topic: The Begin of TXCompute
+This is almost the first actual progress of my project, **so far.**
+In the pass time, I was all just learning. But today, once the first piece of code had reached from my brain to VSCode, I know, the development of TXCompute, had finally started.
+April 8th, is when I started learning hardware. It took me 2 weeks to understand the hardware reality. And then, I have one month, to build something amazing.
+And I, am prepared for that.
+
+## 2026-04-21 23:21:55:<br>Category: Development Report<br>Topic: The ILI9488 Driver
+*It's basically just a wrapper of the io system.*
+Since ESP_LCD don't have a driver support for ILI9488, I have to write my own driver.
+My driver is very tiny. It only compose of 2 component / functions:
+- Initialization of the LCD screen;
+- Write data to specific location of the LCD screen's framebuffer.
+That's it. And that's all I need.
+Call `ILI9488DriverPanel::init()` to initialize; Call `ILI9488DriverPanel::draw()` to write pixels.
+*Yeah it's this simple.*
+
+### Note
+I potensially need to add gamma in initialization in the future too.
+
+### The next step
+Currently the `ILI9488DriverPanel` is just a static function collection. Stand alone it cannot do the job of rendering, it needs the IO.
+Therefore, the next step will be a wrapper of the `ILI9488DriverPanel` driver and the IO, which will include the initialization, uninitialization, and forwarding of the IO and bus - so this will be a actual class object now.
+And the goal of this wrapper will be **"Be able to draw content with just providing position, dimension, and data."**
+I even have a name for it already:
+**`FrameComposer`**
+
 
 
 
 lights: backlights - brightness and power usage
 
 timer: esp_timer and ledc_timer_config_t
+vTaskDelay
+
 
 
 Screen:

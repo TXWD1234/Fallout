@@ -63,6 +63,7 @@ private:
 	}
 
 	static float evaluate_impl(std::span<const std::byte> buffer) {
+		return 0.0f;
 	}
 
 	// helper functions

@@ -21,6 +21,14 @@ class ExpressionEvaluator {
 	 * Terminology:
 	 * - `Major Operation`: multiply or divide
 	 * - `Minor Operation`: add or subtract
+	 * 
+	 * Idea:
+	 * - compose(): make operation queue / command buffer
+	 * - evaluate(): calculate / execute the composed command buffer
+	 * 
+	 * ## Command buffer
+	 * The register
+	 * Opaque struct `Operation`: set a register as the result of an `Expression`
 	 */
 public:
 	static void compose(std::string_view source, std::span<std::byte> buffer) { compose_impl(source, buffer); }

@@ -1011,7 +1011,11 @@ A math "programming language", definitely have to have a expression parser, and 
    - evaluate each Major unit
    - evaluate minor operation recursively
 
+## 2026-04-22 23:55:09:<br>Category: DevelopmentReport<br>Topic: `FrameComposer`
+The wrapper around the `ILI9488Driver`, that manages the bus and io by RAII, so that the user only need to call `draw()` to render.
 
+### Note
+The `FrameComposer` deleted copy and move, it suppose to be only accessed by the singleton provided.
 
 
 

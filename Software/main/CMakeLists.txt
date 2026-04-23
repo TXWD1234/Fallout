@@ -9,5 +9,7 @@ idf_component_register(
 		"esp_lcd"
 		"esp_timer"
 		"esp_common"
+
 		"TXLib"
+		"TXCSL_Engine"
 )

@@ -989,6 +989,30 @@ And the goal of this wrapper will be **"Be able to draw content with just provid
 I even have a name for it already:
 **`FrameComposer`**
 
+# 2026-04-22
+
+## 2026-04-22 23:28:23:<br>Category: Development Report<br>Topic: TXCSL - `ExpressionEvaluator`
+Since the Project of TXCompute had started, as the core logic handler of the project, TXCSL engine started becoming one of the considerations.
+A math "programming language", definitely have to have a expression parser, and that's the first component I thought about the TXCSL engine.
+
+---
+`ExpressionEvaluator` is a string parser that handle 2 things:
+- parse raw string expression into numbers and operations
+- evaluate the expression according to the BEDMAS (order of evaluation) rule
+
+### Key idea
+`ExpressionEvaluator` will have  stages to evaluate a expression string:
+1. structure the order of operation tree
+   - compose brackets ranges - each bracket is an individual expression (recursive parsing logic), treated as one variable at their parent level
+     - depth stack
+     - parent / child data structure
+   - compose Major operation unit tree - separate the expression by Minor operations (`plus` or `subtract`)
+2. evaluate
+   - evaluate each Major unit
+   - evaluate minor operation recursively
+
+
+
 
 
 

@@ -11,12 +11,14 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "tx/csl_engine.h"
+
 class ILI9488DriverPanel {
 	using io_t = esp_lcd_panel_io_handle_t;
 
 public:
 	static void init(io_t io) { initLCD_impl(io); }
-	static void draw(io_t io, tx::Coord topLeft, tx::Coord dimension, tx::u8* data) { sendData_impl(io, topLeft, dimension, data); }
+	static void draw(io_t io, tx::Coord topLeft, tx::Coord dimension, tx::u16* data) { sendData_impl(io, topLeft, dimension, data); }
 
 
 private:
@@ -45,6 +47,7 @@ private:
 		0xF7, // Adjust control 3
 		0x11, // Exit sleep - delay 120 ms after
 		0x29, // Display on - delay 25 ms after
+		// operations
 		0x2A, // Set the X begin and end of the pushing data
 		0x2B, // Set the Y begin and end of the pushing data
 		0x2C  // Write memory
@@ -117,12 +120,12 @@ private:
 	static void setDataRegion_impl(io_t io, tx::Coord topLeft, tx::Coord dimension) {
 		tx::Coord bottomRight = topLeft + dimension.offset(-1, -1);
 		tx::u8 xparam[] = {
-			(topLeft.x >> 8) & 0xFF, topLeft.x & 0xFF,
-			(bottomRight.x >> 8) & 0xFF, bottomRight.x & 0xFF
+			static_cast<tx::u8>((topLeft.x >> 8) & 0xFF), static_cast<tx::u8>(topLeft.x & 0xFF),
+			static_cast<tx::u8>((bottomRight.x >> 8) & 0xFF), static_cast<tx::u8>(bottomRight.x & 0xFF)
 		};
 		tx::u8 yparam[] = {
-			(topLeft.y >> 8) & 0xFF, topLeft.y & 0xFF,
-			(bottomRight.y >> 8) & 0xFF, bottomRight.y & 0xFF
+			static_cast<tx::u8>((topLeft.y >> 8) & 0xFF), static_cast<tx::u8>(topLeft.y & 0xFF),
+			static_cast<tx::u8>((bottomRight.y >> 8) & 0xFF), static_cast<tx::u8>(bottomRight.y & 0xFF)
 		};
 		esp_lcd_panel_io_tx_param(io, getCommand(SetDataRegionX), xparam, 4);
 		esp_lcd_panel_io_tx_param(io, getCommand(SetDataRegionY), yparam, 4);
@@ -158,6 +161,11 @@ class FrameComposer {
 
 
 extern "C" void app_main(void) {
+
+	ExpressionEvaluator aaa;
+
+
+
 	esp_lcd_i80_bus_handle_t bus = nullptr;
 	esp_lcd_i80_bus_config_t config_bus = {
 		.dc_gpio_num = GPIO_NUM_11,
@@ -196,8 +204,11 @@ extern "C" void app_main(void) {
 		    .dc_data_level = 1,
 		},
 		.flags = {
-		    .cs_active_high = false,
-		},
+		    .cs_active_high = false, .reverse_color_bits = 0,
+		    .swap_color_bytes = 0, // Set to 1 only if your colors look "swapped" (e.g., Red and Blue are flipped)
+		    .pclk_active_neg = 0, // Set to 1 if the display captures data on the falling edge
+		    .pclk_idle_low = 0 // Set to 1 if the clock line should stay low when not transmitting
+		}
 	};
 	esp_lcd_new_panel_io_i80(bus, &config_io, &io);
 

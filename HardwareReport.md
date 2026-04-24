@@ -1011,19 +1011,69 @@ A math "programming language", definitely have to have a expression parser, and 
    - evaluate each Major unit
    - evaluate minor operation recursively
 
-## 2026-04-22 23:55:09:<br>Category: DevelopmentReport<br>Topic: `FrameComposer`
+## 2026-04-22 23:55:09:<br>Category: Development Report<br>Topic: `FrameComposer`
 The wrapper around the `ILI9488Driver`, that manages the bus and io by RAII, so that the user only need to call `draw()` to render.
 
 ### Note
 The `FrameComposer` deleted copy and move, it suppose to be only accessed by the singleton provided.
 
+# 2026-04-23
+
+## 2026-04-23 16:35:34:<br>Category: Development Report<br>Topic: `TextRenderer`
+The application interface of the entire render pipeline.
+Provide function: `draw(position, character)` to render the text bitmap.
+The user still require to provide the bitmap data of the text / characters.
+
+### Note
+**The format of the `bitemapData` for text:**
+Each character is required to have the same dimension.
+Each character will occupy `std::ceil(width * height / 8)` bytes. Each bit (total of 8) in one byte will corrispond to one pixel (1 bpp / 1 Bit Per Pixel). If the pixel count is not exactly multiple of 8, the remaining of the last byte will be ignored.
+
+## 2026-04-23 23:20:34:<br>Category: Development Report<br>Topic: TXCSL - `ExpressionEvaluator`: updated stucture
+Instead of letting the user provide raw std::byte buffer, we ask user to provide a struct to me modified by the evaluator that contains all the necessary values to be evaluated:
+```cpp
+struct Expression {
+	std::span<Command> commandQueue;
+	std::span<num> constantBuffer;
+	std::span<num> variableBuffer;
+	tx::u32 registerCount;
+};
+```
+And the stage from raw expression string to this expression data struct is called "compile". *(used to be called compose)*
+After "compilation", the user will then pass the "compiled" result `Expression` struct object to `evaluate()` function, which will calculate the value of the expression.
+
+### The reason of "compile"
+Because I want to support function defining in the future, and since the "compilation" did most of the parsing job, is what's slow in the entire pipeline, "compiling" it into commands (aka instructions) is the method I think of to optimize it.
+
+## 2026-04-23 23:27:36:<br>Category: Development Report<br>Topic: Project Outline: Things that I need to do before submit
+- The Document
+- The Shell design
+  - Learn CAD
+  - Design 3d model
+- Physical connection design
+  - KiCad work - schematic
+  - not planning on using PCB, therefore it's just the schematic indicating the connections
+  - Add USB port for external keyboard
+- Terminal Engine
+  - Converter from TTF font file to bitmap
+    - Learn library
+    - CLI
+  - IO system
+- Input system
+  - Learn API
+  - Build abstraction layer
+- TXCSL
+  - finish ExpressionEvaluator
+  - variable system
+  - function system
+  - maybe branching?
+- TXCompute
+  - Connect everything together
+  - memory manager
 
 
 
 lights: backlights - brightness and power usage
-
-timer: esp_timer and ledc_timer_config_t
-vTaskDelay
 
 
 

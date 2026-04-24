@@ -261,6 +261,10 @@ public:
 	      m_bitmapUnitSize(std::ceil(width * height / 8)),
 	      m_leftOverLength(m_bitmapUnitSize - std::floor(width * height / 8)) {
 	}
+	~TextRenderer() {
+		heap_caps_free(m_data.frameBufferData[0]);
+		heap_caps_free(m_data.frameBufferData[1]);
+	}
 
 	/**
 	 * @param position topLeft

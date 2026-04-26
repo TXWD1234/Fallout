@@ -113,6 +113,7 @@ private:
 	}
 
 	static num evaluate_impl(Expression& bin) {
+		return num{};
 	}
 
 	// helper functions

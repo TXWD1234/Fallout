@@ -1071,6 +1071,359 @@ Because I want to support function defining in the future, and since the "compil
   - Connect everything together
   - memory manager
 
+# 2026-04-24
+
+## 2026-04-24 13:23:47:<br>Category: Development Report<br>Topic: Adding USB Host dependency
+In ESP-IDF v6.0, USB host library component is moved from the core profile into managed_component category.
+Therefore it cannot directly be added to the project by simply adding a name in CMakeLists.txt -> `idf_component_register` -> `REQUIRES`.
+Instead, the library content need to be **registered**, then **downloaded** in the process of configuration.
+
+### Adding Managed Component
+#### 1. Register
+You can register a managed component by using the `idf.py add-dependency` command in the ESP-IDF terminal.
+
+`idf.py add-dependency` will write some information into a file (`<project>/main/idf_component.yml`), as metadata, they will be read during configure, and then trigger the download.
+This step will **not** download anything.
+
+For adding the USB host, there are 2 compoennts to be registered:
+```bash
+idf.py add-dependency "espressif/usb_host_hid^1.2.0"
+idf.py add-dependency "espressif/usb^1.4.0"
+```
+
+##### Open an ESP-IDF terminal
+*An ESP-IDF terminal is just a normal terminal with ESP-IDF environment.*
+1. Open a normal terminal
+2. `cd ~/.espressif/v6.0/esp-idf`
+3. `./install.fish` *(or `install.sh` / `install.bat`)*
+4. `. ./export.fish`
+The current terminal is an ESP-IDF terminal now.
+
+#### 2. Configure
+```bash
+idf.py reconfigure
+```
+This command will trigger the download of the new component added.
+They will be stored at `<project>/managed_component`, with prefix: `espressif__`.
+After this you can just add these component in the CMakeLists.txt:
+```c
+idf_component_register(
+	REQUIRES
+		"espressif__usb"
+		"espressif__usb_host_hid"
+)
+```
+
+### The `CMakePresets.json` Pitfall
+If `<project>/${sourceDir}` exist, then you are in the `CMakePresets.json` pitfall.
+```json
+{
+  "name": "config_debug",
+  "displayName": "config_debug",
+  "generator": "Ninja",
+  "binaryDir": "${sourceDir}/build",
+  "cacheVariables": {
+    "CMAKE_BUILD_TYPE": "Debug"
+  }
+},
+```
+This is a normal CMake preset entry, but the `"binaryDir"` entry will have problem with `idf.py`.
+Because the `${sourceDir}` is a defined variable for `CMakePresets.json`, CMake understand what it is, but `idf.py` at the wrapper of CMake and who **don't** forward everything, it will not resolve the `${sourceDir}` variable but instead treating it as an actual literal, and actually make a directory called `${sourceDir}` in your `<project>` directory.
+
+#### The Fix
+Just delete the `${sourceDir}/`, change the value of `binaryDir` into a relative path: `"build"` , and it will resolve fine.
+**Fixed CMakePresets.json entry:**
+```json
+{
+  "name": "config_debug",
+  "displayName": "config_debug",
+  "generator": "Ninja",
+  "binaryDir": "build",
+  "cacheVariables": {
+    "CMAKE_BUILD_TYPE": "Debug"
+  }
+},
+```
+
+## 2026-04-24 16:00:01:<br>Category: Hardware Programming<br>Topic: `xTaskCreate`
+
+`xTaskCreate(functionPtr, name, stackDepth, parameter, priority, &taskHandle)`
+
+*Function from FreeRTOS,* Create a async task that runs parallel with every other threads.
+*Similar to `std::thread`, but internally it's not a new thread.*
+`functionPtr`: the pointer to the function to be executed as this task. it's parameter have to be `(void*)`, and it must never return
+`name`: `const char* const` type (string), the name of this task, just for debug
+`stackDepth`: `int` type, the size of stack of this task, in "word" (4 byte), usually `4096`
+`parameter`: `void*` type, the parameter to the function of this task, `nullptr` for no parameter
+`priority`: `int`  type, the priority of this task, varying between `0` ~ `25`, the higher the more frequent updated. usually `5`
+`taskHandle`: `TaskHandle_t*` type pointer, the handle for future operations.
+
+# 2026-04-25
+
+## 2026-04-24 15:16:31:<br>Category: Hardware Programming<br>Topic: The USB Host Pipeline
+ESP32 S3 have it's native USB host peripherals, making it very easily compatible with expernal USB devices.
+However, there are still a lot concepts to go through, before you can call `getKey()` for a USB keyboard.
+
+### General Description
+There are 3 general ideas in the USB Host pipeline:
+- The USB engine
+- HID
+- The Callback Architecture
+
+---
+The entire USB system is based on the Hardware Peripherals that powers it.
+Therefore there is no way it could be an OOP architecture.
+Yes, it's a global state machine. Everything talks in global.
+
+The USB engine is the lowest component in the USB host pipeline. It basically handles in direct data input from the D+/D- pins.
+*By the way, the D+/D- ports are hardcoded to be "The ports" for USB usage. It's directly wired to the USB peripherals, which directly connecting to the handler API in the USB engine.*
+
+The HID is an layer that's on top of the USB engine.
+It also talks directly to the peripheral like the USB engine, therefore no need to attach handle of USB engine when initing it.
+It's the higher level abstraction of direct USB data, transfrom them into events.
+
+Both the USB engine and the HID engine runs in parallel, by the FreeRTOS's task scheduler.
+*Note: it's not necessaryly in different threads, instead it's the scheduler switching between tasks.*
+
+### The USB Engine / USB Host
+**You need to manage the loop of the USB engine by yourself.**
+
+#### Initialization
+*The init of USB stuff is called "install".*
+
+`usb_host_install(&config)`
+
+Initialize the USB peripheral with `config`.
+
+`usb_host_config_t`
+
+The config struct of USB peripheral.
+*~~It's surprisingly simple, only with one member.~~ It has multiple members, but usually you only need to specify one. The other ones are for advanced usage.*
+```cpp
+usb_host_config_t config{};
+config.intr_flags = ESP_INTR_FLAG_LEVEL1;
+```
+
+#### Main Loop
+*It's just an infinite while loop.*
+
+**Basic Implementation**
+*You can basically copy this implementation, since there's not really anything to be specialized here.*
+```cpp
+void usb_host_task(void*)
+{
+    while (true) {
+        uint32_t event_flags;
+        usb_host_lib_handle_events(portMAX_DELAY, &event_flags);
+    }
+}
+```
+This function would be launched as a async task (similar to a parallel thread, but managed by FreeRTOS), by function `xTaskCreate`.
+
+It's basically just a loop calling `usb_host_lib_handle_events` constantly, who act like a `poll event` or `run` function in every async system.
+
+`usb_host_lib_handle_events(delay, &resultFlag)`
+
+*The parameters are basically irrelevant.*
+Poll event.
+`delay`: Maximum time to wait for an event before returning. It would block the thread until the delay runs out, or received an event. use `portMAX_DELAY` for block when there's no USB input / block until there's an event.
+`resultFlag`: The outputing result flags, `uint32_t` type. usually ignored.
+
+### HID
+HID (Human Interface Device / Human Input Device) is the high level wrapper / interface of the USB engine.
+**INPORTANT! It only handles human input devices such as keyboard and mouse, it DO NOT handle things like removable disk, that belongs to a different API.**
+*Because there are so many devices use USB, they each talk in their own protocol, developer need to write driver for every one of them, and that's every tedious. Therefore HID exists as a solution to that.*
+HID is a unified / standarized protocol of USB inputs.
+HID have 2 parts: **Descriptor** and **Report**.
+
+#### Descriptor
+Describes the format of the report in a uniform method.
+This will send once when the USB device connects to the port.
+
+#### Report
+The actual data of the events. Follows the format described by the Descriptor.
+Reports are sent continuously and constantly, reflecting current device state.
+
+#### The Pipeline
+***There are 2 stages of HID:***
+- **init (driver)**
+- **runtime (interface)**
+
+Each stage have a config struct, and their dedicated callback function.
+Each stage will be declared started by a call of their respective init function.
+The 2 stages came in a sequence: `init` -> `runtime`.
+*HID reacts on the USB events.*
+
+---
+**Important Note**
+In the case of multi device, the `init` stage is for the entire HID engine, only need to be called once. But the `runtime` stage is for each device, meaning that each device will have their own stage, and their own callback for `runtime` stage, and all of that comes together with the `runtime` stage. The init funciton for `runtime` stage will be called multiple times too.
+**Specific for callbacks**
+The callback for `init` stage is called `driver` callback. There will only one global `driver` callback. This callback is responsible of starting the `runtime` stage for each device.
+THe callback for `runtime` stage is called `interface` callback. Optimally, there will be one `interface` callback for each driver, performing their unique logic. Different `interface` callback will be assigned in `driver` callback to different devices.
+
+#### Initialization
+**Init Stage**
+**This initialization will be executed once.**
+*Similar to the USB engine, the init funciton for `init` stage is also called "install"*
+
+`hid_host_install(&config)`
+
+Initialize the HID engine.
+It will start the HID `init` stage, as well as starting the main loop.
+
+```cpp
+hid_host_driver_config_t hid_init_config = {
+    .create_background_task = true, // enable driver's own task / main loop
+    .task_priority = 5, // priority of the driver's task
+    .stack_size = 4096, // stack size of the driver's task
+
+    .callback = hid_driver_cb, // **Important** The function pointer of the `driver` callback function
+    .callback_arg = nullptr, // arguments / parameters to pass into the callback function
+};
+```
+
+*Note about the main loop of HID:*
+*Unlike the USB engine where you need to write your own loop, HID have the loop implemented for you.*
+*After initialization it will automaticly start runing.*
+
+**Runtime Stage**
+**This initialization will be execute multiple times throughout the program life time. It will be execute once for EACH device.**
+**When the `runtime initialization` is executed for one device, that device is now in `runtime` stage. If there are other devices that haven't, they will still be in the `init` stage.**
+*The `runtime initialization` will happen in the `driver` callback.*
+
+`hid_host_device_open(device, &config)`
+`hid_host_device_start(device)`
+
+**Open and prepare device** and **Start receiving reports**.
+*`hid_host_device_open(...)` is the "offical" init function for `runtime` stage, it will start the `runtime` stage. But usually `hid_host_device_start(...)` will be called directly after it, since it enables the device's report flow. So these 2 functions combined is the initialization for the `runtime` stage.*
+
+```cpp
+hid_host_device_config_t hid_runtime_config = {
+    .callback = hid_interface_cb, // **Important** The function pointer of the `interface` callback function
+    .callback_arg = nullptr, // arguments to pass to the callback function
+};
+```
+
+### Termination
+*Nothing much to say, just call them in the callback when the event is `DISCONNECT`, or in the destructor... whatever you want.*
+```cpp
+hid_host_device_stop(device);
+hid_host_device_close(device);
+
+hid_host_uninstall();
+```
+
+### Callback
+Callback is the core of the HID system.
+According to the 2 stages, there are 2 callbacks:
+- driver callback (correspond to the `init` stage)
+- interface callback (correspond to the `runtime` stage)
+
+#### **`Driver` callback**
+*It act like the initializer for each device.*
+Manage the action when *and only when* a new device is connected.
+
+**Function Signature**
+*This function is the function that you will implement by yourself and reference in the `hid_host_driver_config_t.callback` member.*
+
+```cpp
+void hid_host_driver_event_cb(
+	hid_host_device_handle_t hid_device_handle,
+    const hid_host_driver_event_t event,
+    void* arg);
+```
+
+**`hid_host_driver_event_t`:**
+```cpp
+enum hid_host_driver_event_t {
+    HID_HOST_DRIVER_EVENT_CONNECTED = 0x00
+};
+```
+
+#### **`Interface` callback**
+Everytime an event happens during the `runtime` stage, the HID engine will call the `interface` callback function with the info of the event.
+
+*Notice that the `interface` callback also manages the uninit of the device. And `driver` callback only manages initialization.*
+
+**Function Signature**
+*This function is the function that you will implement by yourself and reference in the `hid_host_device_config_t.callback` member.*
+
+```cpp
+void hid_host_interface_event_cb(
+	hid_host_device_handle_t hid_device_handle,
+    const hid_host_interface_event_t event,
+    void* arg);
+```
+
+**`hid_host_interface_event_t`:**
+```cpp
+enum hid_host_interface_event_t {
+    HID_HOST_INTERFACE_EVENT_INPUT_REPORT = 0x00,
+    HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR,
+    HID_HOST_INTERFACE_EVENT_DISCONNECTED,
+    HID_HOST_INTERFACE_EVENT_SUSPENDED,
+    HID_HOST_INTERFACE_EVENT_RESUMED,
+};
+```
+
+### Callback Functions
+*These function should be called in the event callback funciton.*
+*`device`: the device handle of the targeting device. It's the first parameter of the callback function.*
+
+`hid_host_device_get_raw_input_report_data(device, &data, capacity, &length)`
+
+Get the event data (report data) of a device. *Get most recent event data.*
+`data`: `uint8_t*` type
+`capacity`: `size_t*` type, the size of the `data` buffer
+`length`: `size_t*` type, the actual length of the written data to the `data` buffer
+
+### Final pipeline
+*Graph by ChatGPT*
+```
+USB hardware
+    ↓
+USB host stack (event loop you drive)
+    ↓
+HID driver (device detection)
+    ↓
+HID interface (per-device runtime)
+    ↓
+callbacks
+    ↓
+logic (your code)
+```
+
+## 2026-04-24 20:10:01:<br>Category: Hardware Programming<br>Topic: Keyboard HID Format and Code
+Each report is 8 bytes.
+First byte is the modifier. Second byte is reserved. The rest 6 byte is the keys that are currently pressed.
+```
+[Mod][Reserved][Key0][Key1][Key2][Key3][Key4][Key5]
+```
+
+### Code -> Key table
+https://usb.org/sites/default/files/hut1_5.pdf
+**Page 89**
+
+### Modifier Layout
+```
+bit 0 - Left Ctrl   (0x01)
+bit 1 - Left Shift  (0x02)
+bit 2 - Left Alt    (0x04)
+bit 3 - Left Super  (0x08)
+bit 4 - Right Ctrl  (0x10)
+bit 5 - Right Shift (0x20)
+bit 6 - Right Alt   (0x40)
+bit 7 - Right Super (0x80)
+```
+
+
+## 2026-04-24 22:28:15:<br>Category: Personal Journal<br>Topic: The ChatGPT pitfall
+Today I learned the USB host pipeline via ChatGPT.
+And when i tried to implement the framework, I found out that a lot of APIs ChatGPT gave me is missing.
+By diving into the source code, i found out that the pipeline ChatGPT gave me is the older version of it, and it completely don't match with the current version.
+Then i have to read the source code and rewrite my report.
+So the conclusion is: for library like ESP-IDF, that updates constantly, reading the source code is way more reliable, also surprisingly faster then talking with AI.
+
 
 
 lights: backlights - brightness and power usage

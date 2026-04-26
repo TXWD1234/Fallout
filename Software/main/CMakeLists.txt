@@ -9,6 +9,8 @@ idf_component_register(
 		"esp_lcd"
 		"esp_timer"
 		"esp_common"
+		"espressif__usb"
+		"espressif__usb_host_hid"
 
 		"TXLib"
 		"TXCSL_Engine"

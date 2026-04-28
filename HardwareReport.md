@@ -1416,13 +1416,129 @@ bit 6 - Right Alt   (0x40)
 bit 7 - Right Super (0x80)
 ```
 
-
 ## 2026-04-24 22:28:15:<br>Category: Personal Journal<br>Topic: The ChatGPT pitfall
 Today I learned the USB host pipeline via ChatGPT.
 And when i tried to implement the framework, I found out that a lot of APIs ChatGPT gave me is missing.
 By diving into the source code, i found out that the pipeline ChatGPT gave me is the older version of it, and it completely don't match with the current version.
 Then i have to read the source code and rewrite my report.
 So the conclusion is: for library like ESP-IDF, that updates constantly, reading the source code is way more reliable, also surprisingly faster then talking with AI.
+
+# 2026-04-26
+
+## 2026-04-26 22:54:05:<br>Category: Development Report<br>Topic: `USBFramework`
+`USBFramework` is almost just a wrapper to simplify the pipeline of USB Host.
+It manages the process of initialization and uninitialization, but left the callbacks to the user's decision.
+It's a static class, meaning that there will be no object created for it.
+
+### APIs
+`USBFramework` provide 5 functions, 2 for `init` stage (driver) and 3 for `runtime` stage (interface).
+There are 2 function: init and uninit for each stage:
+
+```cpp
+USBFramework::driverInit(callbck);
+USBFramework::driverUninit();
+USBFramework::interfaceInit(device, callback);
+USBFramework::interfaceUninit(device);
+```
+
+and one extra helper function to get report data, which is just a direct forwarding wrapper function:
+
+```cpp
+USBFramework::interfaceGetReport(device, &data, dataLengthMax, &dataLength);
+```
+
+# 2026-04-27
+
+## 2026-04-27 23:08:27:<br>Category: Development Report<br>Topic: `USBKeyboardInputHandler`
+*This is way more complicated then I thought.*
+`USBKeyboardInputHandler` is a wrapper with logic of `USBFramework`. It contains specialized logic for **keyboard IO** analyzing, as well as the corrisponding driver related setup.
+`USBKeyboardInputHandler` can be separated as 2 parts:
+- Driver Oriented Setup
+- Logic Oriented Handler
+`USBKeyboardInputHandler` is also a global state machine, who also adopted the design of *"pure static class"* just like `USBFramework`.
+
+### Driver
+Contains the implementation of `driverCallback_impl` and `interfaceCallback_impl`, as the lifetime manager of the process.
+Also contain the essential enum types such as `Key`, `Action` and `Mod`, as well as `keyCodeTable`, which is the lookup table describing the translation between HID code and a uniformed code set that's corresponding to ASCII.
+*The `Key` enum design is referenced from GLFW 3. Credit: `https://www.glfw.org`*
+*Bro it took me sooooo long to write all of that by hand. I have to look at the HID Datasheet and copy the value down by hand one by one! —— TX_Jerry*
+
+### Logic
+Handles:
+- The decode process of the Modifiers
+- The Action state
+  - Release
+  - Repeat
+  - Press
+- Current pressing key
+  - Key cache
+The core entry function is `handleReport_impl()`, which is being called by the `interfaceCallback` when an keyboard input event happens.
+
+### Interface
+The user is only exposed to 3 functions:
+- `init()`
+	Initialize the entire system, including the `USBFramework`. *(it's actually just initing `USBFramework` but.. it's just for encapsulation)*
+- `uninit()`
+	Uninitialize the entire system, including the `USBFramework`.
+- `setCallback(InputCallbackFunc_t func)`
+	Set the event callback when a keyboard input event happens.
+
+**`InputCallbackFunc_t`**:
+```cpp
+using USBKeyboardInputHandler::InputCallbackFunc_t = void (*)(
+	USBKeyboardInputHandler::Key,
+	USBKeyboardInputHandler::Action,
+	USBKeyboardInputHandler::Mod); // key, action, mod
+```
+
+## 2026-04-27 23:32:12:<br>Category: Personal Journal<br>Topic: The development of `USBKeyboardInputHandler`
+*This is way more complicated then I thought.*
+
+### First struggle - Knowledge mismatch
+This one is already mentioned in previous journal. It's the ChatGPT's outdated explaination, that causes me to rewrite everything in the middle of implementation.
+
+### Second Struggle - Unavoidable hardwork
+The HID keyboard key code does not match with ASCII. And It's essential for me to have ASCII because well, I making a terminal.
+So I have to write a giant static array to map each HID key code to the uniform key set that matches ASCII.
+Fortunatly, in this part I have GLFW (`https://www.glfw.org`) to reference.
+
+### Third Struggle - `bit_trick` Side Quest
+HID keyboard report uses bitmask to pass the modifiers.
+Because I had not really that much experience with bit masks, I decided to learn some basic operations.
+After learning, I decided to expand my own library: TXLib with the bit operation helpers, since it's necessary for the current project, as well as important for future usage.
+And that side quest took me pretty far, but eventually it paid off, the modifier part of the keyboard report are now solved in just 4 lines of code.
+
+### Forth Struggle - State Machine error
+During finalizing the `USBKeyboardInputHandler`, I found a bug in my code.
+This is a bug that I consider a major bug, because, well, it took me a long time to find:
+
+In the old `handlerRepeat_impl()`:
+```cpp
+static void handleRepeat_impl(tx::u32 keyIndex) {
+	KeyCacheEntry_impl& key = keyCache[keyIndex];
+	if (key.repeatBeginCounter >= RepeatBeginCounterMax) { // already at repeating stage
+		key.repeatBeginCounter = 0; // <---------------- look over here
+		if (key.repeatCounter >= RepeatCounterMax) { // counter terminates; call click event
+			key.repeatCounter = 0;
+			callCallback_impl(key.key, Action::Repeat);
+		} else
+			key.repeatCounter++;
+	} else
+		key.repeatBeginCounter++;
+}
+```
+i reset the `key.repeatBeginCounter` every time. but what that does is that it restarts the begin counter again, and the actual repeat stage will never be reached. so after i removed the key.repeatBeginCounter = 0; everything works perfectly now.
+
+## 2026-04-27 23:44:19:<br>Category: Personal Journal<br>Topic: New stage in the project `TXCompute` - The end of Infrastructure
+By now, the completion of `USBKeyboardInputHandler` had marked that all low level software infrastructure of the project (Graphics and Input) is finished.
+The next step will be hardware infrastructure:
+- The final schematic
+- Determinding the model of the actual parts
+- The shell CAD design
+And after that, will be the final boss: The `TXCSL` engine!
+> *"The hard part now ends, and the harder parts now begins..."*
+
+
 
 
 

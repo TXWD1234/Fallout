@@ -1,79 +1,70 @@
+# if using `LOCAL_DIR`, the parameter `VERSION` will be ignored
 function(tx_add_txlib)
-	if(EXISTS "${CMAKE_SOURCE_DIR}/../libs/TXLib/CMakeLists.txt")
-	    message(STATUS "Using local TXLib")
-	    add_subdirectory(../libs/TXLib "${CMAKE_BINARY_DIR}/libs/TXLib")
-		set(TXLib "${CMAKE_SOURCE_DIR}/../libs/TXLib" PARENT_SCOPE)
-	else()
-	    message(STATUS "Fetching TXLib from GitHub")
+	message(STATUS "TXLib: Adding TXLib")
 
-	    include(FetchContent)
+	set(options "")
+    set(oneValueArgs LOCAL_DIR VERSION)
+    set(multiValueArgs COMPONENTS)
+    cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
-	    FetchContent_Declare(
-	        TXLib # declared name (you define it)
-	        GIT_REPOSITORY https://github.com/TXWD1234/TXLib.git # url of the targeting repo
-	        GIT_TAG main # set the version of the targeting repo
-	    )
+	set(TX_SOURCE_DIR "")
+	set(TX_BINARY_DIR "")
 
-	    FetchContent_MakeAvailable(TXLib) # git clone + add_subdirector
-		set(TXLib "${txlib_SOURCE_DIR}" PARENT_SCOPE)
-	endif()
-endfunction()
+	# prepare source
+	if(ARG_LOCAL_DIR) # use local dir
+		message(STATUS "TXLib Using local TXLib")
+		if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_DIR}/CMakeLists.txt") # look for in project dir first
+			set(TX_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/${ARG_LOCAL_DIR}")
+		elseif(EXISTS "${ARG_LOCAL_DIR}/CMakeLists.txt")
+			set(TX_SOURCE_DIR "${ARG_LOCAL_DIR}")
+		else()
+			message(SEND_ERROR "TXLib: LOCAL_DIR path not found!")
+			return()
+		endif()
+		set(TX_BINARY_DIR "${CMAKE_BINARY_DIR}/libs/TXLib")
 
-function(tx_add_txlib_version libVersion)
-	if(EXISTS "../libs/TXLib/CMakeLists.txt")
-	    message(STATUS "Using local TXLib")
-	    add_subdirectory(../libs/TXLib "${CMAKE_BINARY_DIR}/libs/TXLib")
-	else()
-	    message(STATUS "Fetching TXLib from GitHub")
+	else() # fetch from remote
+		message(STATUS "Fetching TXLib from GitHub")		
+	
+		# resolve version
+		if(ARG_VERSION)
+			set(GIT_TAG_VAL "${ARG_VERSION}")
+		else()
+			set(GIT_TAG_VAL "main")
+		endif()
 
-	    include(FetchContent)
+		# fetch content
+		include(FetchContent)
 
-	    FetchContent_Declare(
-	        TXLib # declared name (you define it)
-	        GIT_REPOSITORY https://github.com/TXWD1234/TXLib.git # url of the targeting repo
-	        GIT_TAG ${libVersion} # set the version of the targeting repo
-	    )
-
-	    FetchContent_MakeAvailable(TXLib) # git clone + add_subdirector
-		set(TXLib "${txlib_SOURCE_DIR}" PARENT_SCOPE)
-	endif()
-endfunction()
-
-function(tx_add_txlib_components)
-	if(EXISTS "${CMAKE_SOURCE_DIR}/../libs/TXLib/CMakeLists.txt")
-	    message(STATUS "Using local TXLib")
-	    add_subdirectory(../libs/TXLib "${CMAKE_BINARY_DIR}/libs/TXLib")
-		set(TXLib "${CMAKE_SOURCE_DIR}/../libs/TXLib" PARENT_SCOPE)
-	else()
-	    message(STATUS "Fetching TXLib from GitHub")
-
-		set(options "")
-    	set(oneValueArgs "")
-    	set(multiValueArgs COMPONENTS)
-    	cmake_parse_arguments(TX "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-	    include(FetchContent)
-
-	    FetchContent_Declare(
-	        TXLib
-	        GIT_REPOSITORY "https://github.com/TXWD1234/TXLib.git"
-	        GIT_TAG "main"
+		FetchContent_Declare(
+			txlib
+			GIT_REPOSITORY "https://github.com/TXWD1234/TXLib.git"
+			GIT_TAG "${GIT_TAG_VAL}"
 			SOURCE_SUBDIR "TXCMakeUtils"
-	    )
-		# SOURCE_SUBDIR to work around the MakeAvailable
+		)
+		# use `SOURCE_SUBDIR` to work around the MakeAvailable's auto `add_subdirectory`
 
-    	FetchContent_MakeAvailable(TXLib)
-		FetchContent_GetProperties(TXLib)
+		FetchContent_MakeAvailable(txlib)
+		FetchContent_GetProperties(txlib)
 
-    	foreach(comp IN LISTS TX_COMPONENTS)
-    	    if(EXISTS "${txlib_SOURCE_DIR}/${comp}/CMakeLists.txt")
-    	        message(STATUS "TXLib: Adding component [${comp}]")
-    	        add_subdirectory("${txlib_SOURCE_DIR}/${comp}" "${txlib_BINARY_DIR}/${comp}")
-    	    else()
-    	        message(WARNING "TXLib: Component [${comp}] not found in source!")
-    	    endif()
-    	endforeach()
-
-		set(TXLib "${txlib_SOURCE_DIR}" PARENT_SCOPE)
+		set(TX_SOURCE_DIR "${txlib_SOURCE_DIR}")
+		set(TX_BINARY_DIR "${txlib_BINARY_DIR}")
 	endif()
+	
+	# resolve components
+	if(ARG_COMPONENTS) # if given components
+		foreach(comp IN LISTS ARG_COMPONENTS)
+			if(EXISTS "${TX_SOURCE_DIR}/${comp}/CMakeLists.txt")
+				message(STATUS "TXLib: Adding component [${comp}]")
+				add_subdirectory("${TX_SOURCE_DIR}/${comp}" "${TX_BINARY_DIR}/${comp}")
+			else()
+				message(WARNING "TXLib: Component [${comp}] not found in source!")
+			endif()
+		endforeach()
+	else() # add the whole library
+		message(STATUS "TXLib: Adding the whole library")
+		add_subdirectory("${TX_SOURCE_DIR}" "${TX_BINARY_DIR}")
+	endif()
+	
+	set(TXLib "${TX_SOURCE_DIR}" PARENT_SCOPE)
 endfunction()

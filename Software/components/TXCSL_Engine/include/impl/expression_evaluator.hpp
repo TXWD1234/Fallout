@@ -1,7 +1,4 @@
-// Copyright@TXCompute All rights reserved.
-// Author: TX Studio: TX_Jerry
-// Module: TXCSL_Engine
-// File: expression_evaluator.hpp
+// Copyright (c) 2026 TXCompute. Licensed under the MIT License.
 
 #pragma once
 #include "impl/basic_utils.hpp"

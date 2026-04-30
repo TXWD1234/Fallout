@@ -1538,6 +1538,14 @@ The next step will be hardware infrastructure:
 And after that, will be the final boss: The `TXCSL` engine!
 > *"The hard part now ends, and the harder parts now begins..."*
 
+# 2026-04-28
+
+## 2026-04-28 23:08:07:<br>Category: Developmetn Report<br>Topic: Bask to `TXCSL`
+Today I am are back to TXCSL, since I am done with the infrastructure, and.. well I just want to get some core logic done, then I'll not be afraiding that it will not even function in teh future.
+I am still working on `ExpressionEvaluator` today, it's a pretty heavy piece.
+*Parsers are never a easy thing.*
+Today I finished the `BracketParser_impl`, as well as the entire structure design.
+Planning on working on `ExpressionEvaluator` for the next few days, and after that I'll get to some CAD work.
 
 
 

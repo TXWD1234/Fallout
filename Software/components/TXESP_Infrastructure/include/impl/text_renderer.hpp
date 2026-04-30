@@ -18,7 +18,7 @@ public:
 	      m_bitmap(bitmapData),
 	      m_bitmapDimension(width, height),
 	      m_bitmapUnitSize(std::ceil(width * height / 8)),
-	      m_leftOverLength(m_bitmapUnitSize - std::floor(width * height / 8)) {
+	      m_leftOverLength(width * height % 8) {
 	}
 	~TextRenderer() {
 		heap_caps_free(m_data.frameBufferData[0]);
@@ -35,7 +35,7 @@ public:
 	}
 
 private:
-	inline static constexpr const tx::u8 offset = 33;
+	inline static constexpr const tx::u8 offset = 32;
 	inline static constexpr const std::array<tx::u16, 2> color = { 0x0000, 0xFFFF };
 
 private:
@@ -64,7 +64,7 @@ private:
 			}
 		}
 		offset += m_bitmapUnitSize - 1;
-		for (tx::u8 i = 0; i < m_leftOverLength; i++) { // the last byte
+		for (tx::u8 i = m_leftOverLength; i >= 0; i++) { // the last byte
 			f((m_bitmap[offset] >> i) & 0x1);
 		}
 	}
@@ -94,7 +94,7 @@ private:
 			}
 		}
 		offset += m_bitmapUnitSize - 1;
-		for (tx::u8 i = 0; i < m_leftOverLength; i++) { // the last byte
+		for (tx::u8 i = m_leftOverLength; i >= 0; i++) { // the last byte
 			frameBuffer[pixelIndex] = color[(m_bitmap[offset] >> i) & 0x1];
 			pixelIndex++;
 		}

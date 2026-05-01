@@ -224,10 +224,10 @@ private:
 	using Constant_impl = num;
 	using Variable_impl = std::string_view;
 	struct Expression_impl {
-		tx::u32 bracketIndex;
+		tx::u32 bracketIndex; // global index
 	};
 
-	class Tokenlizer {
+	class Tokenlizer_impl {
 		/**
 		 * This entire class object is responsible for only one operation
 		 * *you should not call `run()` multiple times.*
@@ -251,34 +251,39 @@ private:
 		//                     -- Said TX_Jerry
 
 	public:
-		Tokenlizer(
-		    std::string_view source, tx::u32 sourceOffset, std::span<const Bracket_impl> brackets,
-		    std::span<Constant_impl> constantBuffer, // DevNote: this need to be a subspan of the user provided span
+		Tokenlizer_impl(
+		    std::string_view source, tx::u32 sourceOffset, std::span<const Bracket_impl> bracketBuffer, // read only data
+		    std::span<Constant_impl> constantBuffer, tx::u32 constantBufferOffset,
 		    std::vector<Variable_impl>& variableBuffer,
 		    std::vector<Expression_impl>& expressionBuffer,
-		    std::vector<Token_impl> tokenBuffer)
-		    : m_source(source), m_brackets(brackets),
-		      m_bufferConstant(constantBuffer),
-		      m_bufferVariable(&variableBuffer),
-		      m_bufferExpression(&expressionBuffer),
-		      m_bufferToken(&tokenBuffer),
-		      m_sourceOffset(sourceOffset) {}
+		    std::vector<Token_impl>& tokenBuffer)
+		    : m_source(source), m_bracketBuffer(bracketBuffer), // read only data
+		      m_constantBuffer(constantBuffer), // appending from the back
+		      m_variableBuffer(&variableBuffer),
+		      m_expressionBuffer(&expressionBuffer),
+		      m_tokenBuffer(&tokenBuffer),
+		      m_sourceOffset(sourceOffset),
+
+		      m_index(0), m_nextBracketIndex(0),
+		      m_constantBufferSize(constantBufferOffset) {}
 
 		struct Result {
-			tx::u32 constantCount;
+			tx::u32 constantOffset;
 		};
 		Result run() {
 			parse_impl();
-			return Result{ m_bufferConstantSize };
+			return Result{
+				m_constantBufferSize
+			};
 		}
 
 	private:
 		std::string_view m_source;
-		std::span<const Bracket_impl> m_brackets;
-		std::span<Constant_impl> m_bufferConstant;
-		std::vector<Variable_impl>* m_bufferVariable;
-		std::vector<Expression_impl>* m_bufferExpression;
-		std::vector<Token_impl>* m_bufferToken;
+		std::span<const Bracket_impl> m_bracketBuffer;
+		std::span<Constant_impl> m_constantBuffer;
+		std::vector<Variable_impl>* m_variableBuffer;
+		std::vector<Expression_impl>* m_expressionBuffer;
+		std::vector<Token_impl>* m_tokenBuffer;
 		tx::u32 m_sourceOffset;
 
 		// state
@@ -313,17 +318,17 @@ private:
 
 
 		void parseExpression_impl() {
-			m_bufferToken->push_back(Token_impl{
-			    static_cast<tx::u16>(m_bufferExpression->size()),
+			m_tokenBuffer->push_back(Token_impl{
+			    static_cast<tx::u16>(m_expressionBuffer->size()),
 			    TokenType_impl::Expression });
-			m_bufferExpression->push_back(Expression_impl{
+			m_expressionBuffer->push_back(Expression_impl{
 			    nextBracket_impl().index });
 
 			m_index += nextBracket_impl().range.size;
 			m_nextBracketIndex++;
 		}
 		void parseOperation_impl() { // DevNote: add multi character operator
-			m_bufferToken->push_back(Token_impl{
+			m_tokenBuffer->push_back(Token_impl{
 			    static_cast<tx::u16>(getOperationType_impl(m_source[m_index])),
 			    TokenType_impl::Operation });
 			m_index++;
@@ -332,10 +337,10 @@ private:
 			tx::u32 begin = m_index;
 			while (isVariableNameBody_impl(m_source[m_index])) m_index++; // resulted one index after the variable
 
-			m_bufferToken->push_back(Token_impl{
-			    static_cast<tx::u16>(m_bufferVariable->size()),
+			m_tokenBuffer->push_back(Token_impl{
+			    static_cast<tx::u16>(m_variableBuffer->size()),
 			    TokenType_impl::Variable });
-			m_bufferVariable->push_back(m_source.substr(
+			m_variableBuffer->push_back(m_source.substr(
 			    begin, m_index - begin));
 		}
 		void parseNumber_impl() {
@@ -351,18 +356,18 @@ private:
 
 			m_index += static_cast<tx::u32>(ptr - begin);
 
-			m_bufferToken->push_back(Token_impl{
-			    static_cast<tx::u16>(m_bufferConstant.size()),
+			m_tokenBuffer->push_back(Token_impl{
+			    static_cast<tx::u16>(m_constantBufferSize),
 			    TokenType_impl::Constant });
 			bufferConstantPushBack_impl(val);
 		}
 
 		// helpers
 
-		Bracket_impl nextBracket_impl() const { return m_brackets[m_nextBracketIndex]; }
+		Bracket_impl nextBracket_impl() const { return m_bracketBuffer[m_nextBracketIndex]; }
 		tx::u32 nextBracketBegin_impl() const { return nextBracket_impl().range.offset - m_sourceOffset; }
 		bool isBracket_impl() const { return nextBracketBegin_impl() == m_index; }
-		bool hasIncomingBrackets() const { return m_nextBracketIndex < m_brackets.size(); }
+		bool hasIncomingBrackets() const { return m_nextBracketIndex < m_bracketBuffer.size(); }
 
 		static bool isWhiteSpace_impl(char c) { return tx::CharWhiteSpaceGroup::contains(c); }
 		void skipWhiteSpace_impl() {
@@ -398,13 +403,13 @@ private:
 			return tx::inRange(c, '0', '9') || c == '.';
 		}
 
-		tx::u32 m_bufferConstantSize = 0;
+		tx::u32 m_constantBufferSize;
 		void bufferConstantPushBack_impl(Constant_impl val) {
-			if (m_bufferConstantSize >= m_bufferConstant.size()) {
+			if (m_constantBufferSize >= m_constantBuffer.size()) {
 				// DevNote: error
 			}
-			m_bufferConstant[m_bufferConstantSize] = val;
-			m_bufferConstantSize++;
+			m_constantBuffer[m_constantBufferSize] = val;
+			m_constantBufferSize++;
 		}
 	};
 
@@ -426,28 +431,135 @@ private:
 		/**
 		 * all heap allocation here will be temporary. they will be freed after compilation
 		 */
+
+		/**
+		 * DevNote:
+		 * Add reserve
+		 * Calculate allocated size after reserve
+		 * Assert if current heap capacity is not enough
+		 */
+
+		/**
+		 * The order of evaluation in implmentation is from right to left
+		 * (which is from the back of the array poping back)
+		 * All the buffer will reversed. And the new expressions will be appended
+		 * after the current expression section, just like stack.
+		 */
+
+		/**
+		 * Buffers
+		 * 
+		 * BracketBuffer
+		 * Bracket structure generated by BracketParser
+		 * Forms a stack like tree structure
+		 * Accessability: composed by BracketParser, read only throughout
+		 * Lifetime: vector created during compilation, one time init, will be destroied after compilation
+		 * Type: compilation data (meta)
+		 * 
+		 * ConstantBuffer
+		 * Store all constant literals / values
+		 * Accessability: composed by Tokenlizer, will be write by Compiler for constant pre-evaluatioon
+		 * Lifetime: managed by user, exist as span during compilation
+		 * Type: compile result data (evaluator usage)
+		 * (inside `m_bin`)
+		 * 
+		 * VariableBuffer
+		 * Store the name (std::string_view, source is in `m_source`) of the variables
+		 * Accessability: composed by Tokenlizer, forwarding in Compiler
+		 * Lifetime: vector created during compilation, ownership will be taken by the user after compilation (in CompileResult)
+		 * Type: compile result data (user usage)
+		 * DevNote: maybe make my own string_view specificly for this structure to save memory?
+		 * 
+		 * ExpressionBuffer
+		 * Store the expressions (brackets) in a given expression. brackets are represented by their global index in compilation
+		 * Acts like stack, and will be constantly appending and deleting.
+		 * Accessability: composed by Tokenlizer, read and transfer in Compiler
+		 * Lifetime: vector created during compilation, will be destoried after compilation
+		 * Type: compilation data (meta)
+		 * 
+		 * TokenBuffer
+		 * Store the tokens generated by Tokenlizer.
+		 * Acts like stack, and will be constantly appending and deleting.
+		 * Accessability: composed by Tokenlizer, read and transfer in Compiler
+		 * Lifetime: vector created during compilation, will be destoried after compilation
+		 * Type: compilation data
+		 * 
+		 * 
+		 * Note:
+		 * ConstantBuffer and VariableBuffer will accumulate during compilation. 
+		 * They will result a structure that have the same sequence as the BracketBuffer.
+		 * 
+		 * ExpressionBuffer and TokenBuffer will be constantly generating and deleting.
+		 * They acts like stack, where the base data will stay, and their child object (expression / bracket) will expand after them.
+		 * The processed data will be deleted.
+		 */
+
+		/**
+		 * Pipeline
+		 * 
+		 * 1. Raw string
+		 * 2. BracketParser - compose bracket structure
+		 * 3. Tokenlizer    - tokenlize raw string. identify and convert value
+		 * 4. Compiler      - transform tokens into instructions, flatten the operation tree
+		 */
 	public:
 		Compiler_impl(
-		    std::string_view source
+		    std::string_view source,
+		    Expression& bin) : m_bin(bin), m_source(source) {}
 
-		    ) : m_source(source) {}
-
+		// top layer function to be called
 		void run() {
+			compile_impl();
 		}
 
 	private:
+		Expression m_bin;
 		std::string_view m_source;
-		std::vector<Bracket_impl> m_brackets;
+		std::vector<Bracket_impl> m_bracketBuffer;
+		std::vector<Variable_impl> m_variableBuffer;
+		std::vector<Expression_impl> m_expressionBuffer; // this acts like the stack
+		std::vector<Token_impl> m_tokenBuffer; // this acts like stack
+
+		tx::u32 m_constantBufferSize = 0;
+
+		void compile_impl() {
+			stageBracket_impl();
+			Tokenlizer_impl tokenlizer(
+			    m_source,
+			    0,
+			    m_bracketBuffer,
+			    m_bin.constantBuffer, m_constantBufferSize,
+			    m_variableBuffer,
+			    m_expressionBuffer,
+			    m_tokenBuffer);
+			tokenlizer.run();
+
+			int a = 0;
+		}
 
 		// stages
 
-		void stageBracket() {
-			BracketParser_impl bracketParser(m_source, m_brackets);
+		void stageBracket_impl() {
+			BracketParser_impl bracketParser(m_source, m_bracketBuffer);
 			bracketParser.run(); // DevNote: if stack overflow
+		}
+		void stageTokenlizeExpr_impl(Bracket_impl bracket) {
+			Tokenlizer_impl tokenlizer(
+			    findBracketSource_impl(bracket),
+			    findBracketSourceOffset_impl(bracket),
+			    findBracketChilds_impl(bracket),
+			    m_bin.constantBuffer, m_constantBufferSize,
+			    m_variableBuffer,
+			    m_expressionBuffer,
+			    m_tokenBuffer);
+			tokenlizer.run();
 		}
 
 
 		// helpers
+
+		// tokenlizer parameter
+
 		std::string_view findBracketSource_impl(Bracket_impl bracket) {
 			return m_source.substr(
 			    bracket.range.offset + 1,
@@ -458,17 +570,16 @@ private:
 		}
 		std::span<const Bracket_impl> findBracketChilds_impl(Bracket_impl bracket) {
 			return std::span<const Bracket_impl>{
-				m_brackets.begin() + (bracket.index + 1),
-				m_brackets.begin() + (bracket.index + 1 + bracket.childCount)
+				m_bracketBuffer.begin() + (bracket.index + 1),
+				m_bracketBuffer.begin() + (bracket.index + 1 + bracket.childCount)
 			};
 		}
 	};
 
 
 	static void compile_impl(std::string_view source, Expression& bin) {
-		// resolve brackets
-
-		// tokenlize
+		Compiler_impl compiler(source, bin);
+		compiler.run();
 	}
 
 	static num evaluate_impl(Expression& bin) {

@@ -64,7 +64,7 @@ private:
 			}
 		}
 		offset += m_bitmapUnitSize - 1;
-		for (tx::u8 i = m_leftOverLength; i >= 0; i++) { // the last byte
+		for (tx::i8 i = m_leftOverLength; i >= 0; i--) { // the last byte
 			f((m_bitmap[offset] >> i) & 0x1);
 		}
 	}
@@ -94,7 +94,7 @@ private:
 			}
 		}
 		offset += m_bitmapUnitSize - 1;
-		for (tx::u8 i = m_leftOverLength; i >= 0; i++) { // the last byte
+		for (tx::i8 i = m_leftOverLength; i >= 0; i--) { // the last byte
 			frameBuffer[pixelIndex] = color[(m_bitmap[offset] >> i) & 0x1];
 			pixelIndex++;
 		}

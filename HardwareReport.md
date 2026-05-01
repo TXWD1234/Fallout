@@ -1540,12 +1540,109 @@ And after that, will be the final boss: The `TXCSL` engine!
 
 # 2026-04-28
 
-## 2026-04-28 23:08:07:<br>Category: Developmetn Report<br>Topic: Bask to `TXCSL`
+## 2026-04-28 23:08:07:<br>Category: Development Report<br>Topic: Bask to `TXCSL`
 Today I am are back to TXCSL, since I am done with the infrastructure, and.. well I just want to get some core logic done, then I'll not be afraiding that it will not even function in teh future.
 I am still working on `ExpressionEvaluator` today, it's a pretty heavy piece.
 *Parsers are never a easy thing.*
 Today I finished the `BracketParser_impl`, as well as the entire structure design.
 Planning on working on `ExpressionEvaluator` for the next few days, and after that I'll get to some CAD work.
+
+# 2026-04-29
+
+## 2026-04-29 23:05:40:<br>Category: Development Report<br>Topic: `ExpressionEvaluator`: `Tokenlizer`
+The tokenlizer in `ExpressionEvaluator` is the core of the compilation.
+It contains lexering, tokenlization, and parsing in one stage, since the they are almost together.
+***This is a design decision, instead of a mistake. The trade off of using a standard Parsing Pipeline is that it would allocate more memory for metadata, as well as more complex control flow, which will take more time to organize and design. Not saying mine is faster... well it's definitely slower, but at least it's simpler to write.***
+*Listening to my pale exposition... i know you know im just trying to make me look not that dumb...*
+It still followed the *temporary object* and *internal state machine* design pattern as before.
+The next step will be the actual `Compiler`, and then the `compilation` stage will be finished.
+After that, `evaluation` stage will be fairly easy.
+Hopefully I can finish `compilation` tomorrow, and the entire thing by friday.
+And I'll start actually working on some CAD and hardware stuff....
+*This is what happens when you make a software engineer to do a hardware hackathon.*
+
+## 2026-04-29 23:34:30:<br>Category: General Report<br>Topic: Give up the Minor Optimizations!
+```cpp
+/**
+ * Section:
+ * One section is defined as a bracket, and the content before it.
+ * There will be an additional "plain parse" that don't consider brackets at the end, after all brackets
+ * The entire source is separated as:
+ * ...(...)...(...)...(...)...
+ * 1-------2-------3-------end
+ */
+
+void parse_impl() {
+	while (m_nextBracketIndex < m_brackets.size()) {
+		parseSection_impl();
+	}
+	parsePlain_impl();
+}
+
+/**
+ * @note
+ * This functions handles the section: content before bracket and the bracket
+ * after this function, m_index should be at the one character after ')'
+ */
+void parseSection_impl() {
+	skipWhiteSpace_impl();
+	while (parseToken_impl()) skipWhiteSpace_impl(); // keep consuming token while not reached bracket
+	skipWhiteSpace_impl();
+	parseExpression_impl();
+}
+// parsing content without brackets
+void parsePlain_impl() {
+	while (m_index >= m_source.size()) {
+		skipWhiteSpace_impl();
+		if (m_index >= m_source.size()) break;
+		parseTokenPlain_impl();
+	}
+}
+// @return break, because reached bracket
+bool parseToken_impl() {
+	if (isBracket_impl()) return 0;
+	parseTokenPlain_impl();
+	return 1;
+}
+// without consideration of brackets
+void parseTokenPlain_impl() {
+	// it's either a variable or a number or an operation
+	char c = m_source[m_index];
+	if (isOperation_impl(c)) {
+		parseOperation_impl();
+	} else if (isVariableName_impl(c)) {
+		parseVariable_impl();
+	} else { // it's a number or syntax error
+		parseNumber_impl();
+	}
+}
+```
+This is the logic I initially designed for the parsing logic of `ExpressionEvaluator`.
+All the purpose of the "section" design is to avoid the out of bound of `m_brackets`'s last access, when there's no more up coming brackets.
+But all of that can be solved by just add an `if` bound check.
+Separating it into 2 sections, that each have their own consideration can indeed minimize the cost of the `if` boundary check, but that's considered as a minor optimization. And the trade off to do it is major.
+First, the manuel separation and distinction of 2 modes are very rendundent, both in size of code, size of binary and performance.
+Second, preserving this kind of virtual structure requires the reader of the code to build mental models, often needs comments to explain, lowering readability.
+At last, because the "section" layout is not a artificial structure, instead it exist natually when there is brackets exist. Therefore in the 2 mode the `if` will result exactly the same through out:
+```
+[true (not out of bound / there are more brackets)][false (out of bound / there's no more brackets)]
+```
+And in modern CPUs, branch prediction exists. For this kind of contiguous results, the CPU branch predictor and produce nearly **zero cost** branching.
+
+---
+**Therefore, give up on minor optimizations!**
+
+# 2026-04-30
+
+## 2026-04-30 22:36:23:<br>Category: Personal Journal<br>Topic: The Lapse Crash Log
+### Issue
+Hello, I've hit an error in https://lapse.hackclub.com/timelapse/create on uploading a 4 hour recording. The recording have 4 sessions, the first 3 have size of ~100MB, and they uploaded fine. But the last one (session 4) have size of ~560MB, and it's too big to be accepted by the server, according to the log:
+ Cross-Origin Request Blocked: The Same Origin Policy disallows reading the remote resource at https://api.lapse.hackclub.com/upload/dGltZWxhcHNlcy9IZDdSa3NPVWV2QXYvRWNCM3VZbXdLWUlELXNlc3Npb240LndlYm0. (Reason: CORS header 'Access-Control-Allow-Origin' missing). Status code: 413.
+Error: HTTP 413 (Payload Too Large).
+
+### Suggested Actions:
+Can someone please change the maximum upload size on the server, or make lapse automatically slice the session into smaller slices, so that they could fit into the server limit?
+
 
 
 

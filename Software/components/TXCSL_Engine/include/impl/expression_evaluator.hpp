@@ -43,6 +43,13 @@ public:
 		tx::i8 m_valb; // index variable / constant value to be processed (negative is variable, positive is constant)
 	};
 	struct Expression {
+		Expression(
+		    std::span<Command> in_commandQueue,
+		    std::span<num> in_constantBuffer,
+		    std::span<num> in_variableBuffer)
+		    : commandQueue(in_commandQueue),
+		      constantBuffer(in_constantBuffer),
+		      variableBuffer(in_variableBuffer) {}
 		std::span<Command> commandQueue;
 		std::span<num> constantBuffer;
 		std::span<num> variableBuffer;
@@ -61,12 +68,12 @@ public:
 		compile_impl(source, result);
 		return CompileResult{};
 	}
-	static num evaluate(std::string_view source) {
+	// static num evaluate(std::string_view source) {
 
-		Expression bin;
-		compile(source, bin);
-		return evaluate_impl(bin);
-	}
+	// 	Expression bin;
+	// 	compile(source, bin);
+	// 	return evaluate_impl(bin);
+	// }
 
 private:
 	// operation table
@@ -136,7 +143,7 @@ private:
 		 */
 	public:
 		BracketParser_impl(std::string_view source, std::vector<Bracket_impl>& buffer)
-		    : m_source(source), m_buffer(&buffer) {}
+		    : m_source(source), m_buffer(buffer) {}
 
 		/**
 		 * @return success
@@ -161,8 +168,8 @@ private:
 	private:
 		tx::u32 m_stack[stackCapacity]; // stores the index of entry in `m_buffer`
 		std::string_view m_source;
-		std::vector<Bracket_impl>* m_buffer;
-		tx::u8 m_stackPtr;
+		std::vector<Bracket_impl>& m_buffer;
+		tx::u8 m_stackPtr = 0;
 
 		// logic
 		/**
@@ -174,11 +181,11 @@ private:
 
 		bool stateEnterBracket_impl(tx::u32 index) {
 			if (!stackCheckOverflow_impl()) return false; // stack overflow
-			stackPush_impl(m_buffer->size());
-			if (m_stackPtr != 0) currentParent_impl().childCount++;
-			m_buffer->push_back(Bracket_impl{
+			stackPush_impl(m_buffer.size());
+			if (m_stackPtr != 1) currentParent_impl().childCount++;
+			m_buffer.push_back(Bracket_impl{
 			    Bracket_impl::Range_impl{ index, tx::u32{ 0 } },
-			    tx::u16{ 0 }, static_cast<tx::u16>(m_buffer->size()) });
+			    tx::u16{ 0 }, static_cast<tx::u16>(m_buffer.size()) });
 			return true;
 		}
 		bool stateExitBracket_impl(tx::u32 index) {
@@ -203,8 +210,8 @@ private:
 
 		tx::u32 stackTop() const { return m_stack[m_stackPtr - 1]; }
 
-		Bracket_impl& currentParent_impl() { return m_buffer->operator[](stackTop() - 1); }
-		Bracket_impl& current_impl() { return m_buffer->operator[](stackTop()); }
+		Bracket_impl& currentParent_impl() { return m_buffer.operator[](stackTop() - 1); }
+		Bracket_impl& current_impl() { return m_buffer.operator[](stackTop()); }
 	};
 
 
@@ -259,9 +266,9 @@ private:
 		    std::vector<Token_impl>& tokenBuffer)
 		    : m_source(source), m_bracketBuffer(bracketBuffer), // read only data
 		      m_constantBuffer(constantBuffer), // appending from the back
-		      m_variableBuffer(&variableBuffer),
-		      m_expressionBuffer(&expressionBuffer),
-		      m_tokenBuffer(&tokenBuffer),
+		      m_variableBuffer(variableBuffer),
+		      m_expressionBuffer(expressionBuffer),
+		      m_tokenBuffer(tokenBuffer),
 		      m_sourceOffset(sourceOffset),
 
 		      m_index(0), m_nextBracketIndex(0),
@@ -281,9 +288,9 @@ private:
 		std::string_view m_source;
 		std::span<const Bracket_impl> m_bracketBuffer;
 		std::span<Constant_impl> m_constantBuffer;
-		std::vector<Variable_impl>* m_variableBuffer;
-		std::vector<Expression_impl>* m_expressionBuffer;
-		std::vector<Token_impl>* m_tokenBuffer;
+		std::vector<Variable_impl>& m_variableBuffer;
+		std::vector<Expression_impl>& m_expressionBuffer;
+		std::vector<Token_impl>& m_tokenBuffer;
 		tx::u32 m_sourceOffset;
 
 		// state
@@ -293,7 +300,7 @@ private:
 		void parse_impl() {
 			while (m_index < m_source.size()) {
 				skipWhiteSpace_impl(); // early return if no white space existing
-				if (m_index < m_source.size()) break;
+				if (m_index >= m_source.size()) break;
 				parseToken_impl(); // accounting for brackets
 			}
 		}
@@ -312,23 +319,24 @@ private:
 				parseNumber_impl();
 			} else {
 				// DevNote: error
+				return;
 			}
 		}
 
 
 
 		void parseExpression_impl() {
-			m_tokenBuffer->push_back(Token_impl{
-			    static_cast<tx::u16>(m_expressionBuffer->size()),
+			m_tokenBuffer.push_back(Token_impl{
+			    static_cast<tx::u16>(m_expressionBuffer.size()),
 			    TokenType_impl::Expression });
-			m_expressionBuffer->push_back(Expression_impl{
+			m_expressionBuffer.push_back(Expression_impl{
 			    nextBracket_impl().index });
 
 			m_index += nextBracket_impl().range.size;
 			m_nextBracketIndex++;
 		}
 		void parseOperation_impl() { // DevNote: add multi character operator
-			m_tokenBuffer->push_back(Token_impl{
+			m_tokenBuffer.push_back(Token_impl{
 			    static_cast<tx::u16>(getOperationType_impl(m_source[m_index])),
 			    TokenType_impl::Operation });
 			m_index++;
@@ -337,10 +345,10 @@ private:
 			tx::u32 begin = m_index;
 			while (isVariableNameBody_impl(m_source[m_index])) m_index++; // resulted one index after the variable
 
-			m_tokenBuffer->push_back(Token_impl{
-			    static_cast<tx::u16>(m_variableBuffer->size()),
+			m_tokenBuffer.push_back(Token_impl{
+			    static_cast<tx::u16>(m_variableBuffer.size()),
 			    TokenType_impl::Variable });
-			m_variableBuffer->push_back(m_source.substr(
+			m_variableBuffer.push_back(m_source.substr(
 			    begin, m_index - begin));
 		}
 		void parseNumber_impl() {
@@ -352,11 +360,12 @@ private:
 			    val);
 			if (ec != std::errc{}) {
 				// DevNote: error
+				return;
 			}
 
 			m_index += static_cast<tx::u32>(ptr - begin);
 
-			m_tokenBuffer->push_back(Token_impl{
+			m_tokenBuffer.push_back(Token_impl{
 			    static_cast<tx::u16>(m_constantBufferSize),
 			    TokenType_impl::Constant });
 			bufferConstantPushBack_impl(val);
@@ -407,6 +416,7 @@ private:
 		void bufferConstantPushBack_impl(Constant_impl val) {
 			if (m_constantBufferSize >= m_constantBuffer.size()) {
 				// DevNote: error
+				return;
 			}
 			m_constantBuffer[m_constantBufferSize] = val;
 			m_constantBufferSize++;
@@ -533,15 +543,15 @@ private:
 			    m_expressionBuffer,
 			    m_tokenBuffer);
 			tokenlizer.run();
-
-			int a = 0;
 		}
 
 		// stages
 
 		void stageBracket_impl() {
 			BracketParser_impl bracketParser(m_source, m_bracketBuffer);
-			bracketParser.run(); // DevNote: if stack overflow
+			if (!bracketParser.run()) { // DevNote: if stack overflow
+				return;
+			}
 		}
 		void stageTokenlizeExpr_impl(Bracket_impl bracket) {
 			Tokenlizer_impl tokenlizer(

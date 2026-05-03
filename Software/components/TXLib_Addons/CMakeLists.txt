@@ -2,11 +2,10 @@
 
 idf_component_register(
 	SRCS
-		"include/tx/csl_engine.h"
-		"include/impl/expression_evaluator.hpp"
+		"include/tx/addons.h"
+		"include/impl/handle_system.hpp"
 	INCLUDE_DIRS
 		"include"
 	REQUIRES
 		"TXLib"
-		"TXLib_Addons"
 )

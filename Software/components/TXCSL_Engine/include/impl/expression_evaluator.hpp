@@ -11,115 +11,66 @@
 #include <string_view>
 #include <charconv>
 
+namespace tx::csl {
+
+using num = float;
+
+enum class OperationType_impl : tx::u8 {
+	Invalid = 0,
+	Add = 1,
+	Subtract = 2,
+	Multiply = 3,
+	Divide = 4,
+	Assign = 5,
+};
+
+// @note size == 4 byte
+struct Command {
+	tx::u8 m_dest; // index of the destination register
+	OperationType_impl m_operation; // index of the operation
+	tx::u8 m_vala; // identifier of the value to perform the operation
+	tx::u8 m_valb; // identifier of the value to perform the operation
+	/**
+	 * Note of m_vala / m_valb:
+	 * max value: 64
+	 * The first 2 bits are boolean flags
+	 * First bit: isFromBuffer; if is 0, then the value is from registers
+	 * Second bit: isVariableBuffer; if is 0, then the value is from constant buffer
+	 */
+};
+struct Expression {
+	Expression(
+	    std::span<Command> in_commandBuffer,
+	    std::span<num> in_constantBuffer,
+	    std::span<num> in_variableBuffer)
+	    : commandBuffer(in_commandBuffer),
+	      constantBuffer(in_constantBuffer),
+	      variableBuffer(in_variableBuffer) {}
+	std::span<Command> commandBuffer;
+	std::span<num> constantBuffer;
+	std::span<num> variableBuffer;
+	tx::u32 registerCount; // the required registers when evaluating
+	tx::u32 commandCount;
+};
+
+struct CompileResult {
+	tx::u32 commandCount;
+	tx::u32 constantCount;
+	tx::u32 variableCount;
+	std::vector<std::string_view> varibaleNames; // for the caller of compile() to fill in the variabe buffer
+};
+
 
 /**
- * This evaluator don't manage memory, it requires you to provide memory for it.
+ * This compiler don't manage memory. Only temporary memory will be created by it.
+ * The long term memory to store the output requires you to provide.
  * If the memory buffer you provided is not enough, evaluation will be interrupted (DevNote: add error handling) 
  * 
  * Specification:
  * Max size of ConstantBuffer and VariableBuffer: 64
  * Optimal size of CommandBuffer: 256
  */
-class ExpressionEvaluator {
-	/**
-	 * Dev Note
-	 * 
-	 * Terminology:
-	 * - `Major Operation`: multiply or divide
-	 * - `Minor Operation`: add or subtract
-	 * 
-	 * Idea:
-	 * - compile(): make operation queue / command buffer
-	 * - evaluate(): calculate / execute the composed command buffer
-	 * 
-	 * ## Command buffer
-	 * The register
-	 * Opaque struct `Operation`: set a register as the result of an `Expression`
-	 */
-private:
-	enum class OperationType_impl : tx::u8;
-
-public:
-	using num = float;
-
-	// @note size == 4 byte
-	struct Command {
-		tx::u8 m_dest; // index of the destination register
-		OperationType_impl m_operation; // index of the operation
-		tx::u8 m_vala; // identifier of the value to perform the operation
-		tx::u8 m_valb; // identifier of the value to perform the operation
-		/**
-		 * Note of m_vala / m_valb:
-		 * max value: 64
-		 * The first 2 bits are boolean flags
-		 * First bit: isFromBuffer; if is 0, then the value is from registers
-		 * Second bit: isVariableBuffer; if is 0, then the value is from constant buffer
-		 */
-	};
-	struct Expression {
-		Expression(
-		    std::span<Command> in_commandBuffer,
-		    std::span<num> in_constantBuffer,
-		    std::span<num> in_variableBuffer)
-		    : commandBuffer(in_commandBuffer),
-		      constantBuffer(in_constantBuffer),
-		      variableBuffer(in_variableBuffer) {}
-		std::span<Command> commandBuffer;
-		std::span<num> constantBuffer;
-		std::span<num> variableBuffer;
-		tx::u32 registerCount; // the required registers when evaluating
-	};
-
-	struct CompileResult {
-		tx::u32 commnadCount;
-		tx::u32 constantCount;
-		tx::u32 variableCount;
-		std::vector<std::string_view> varibaleNames; // for the caller of compile() to fill in the variabe buffer
-	};
-
-public:
-	static CompileResult compile(std::string_view source, Expression& result) {
-		compile_impl(source, result);
-		return CompileResult{};
-	}
-	// static num evaluate(std::string_view source) {
-
-	// 	Expression bin;
-	// 	compile(source, bin);
-	// 	return evaluate_impl(bin);
-	// }
-
-private:
-	// operation table
-	static void add_impl(num& dest, num a, num b) { dest = a + b; }
-	static void sub_impl(num& dest, num a, num b) { dest = a - b; }
-	static void mul_impl(num& dest, num a, num b) { dest = a * b; }
-	static void div_impl(num& dest, num a, num b) { dest = a / b; }
-
-	static void assign_impl(num& dest, num val) { dest = val; }
-
-	enum class OperationType_impl : tx::u8 {
-		Add = 1,
-		Subtract = 2,
-		Multiply = 3,
-		Divide = 4,
-		Assign = 5,
-	};
-	// clang-format off
-
-	static void performOperation_impl(OperationType_impl operation, num& dest, num a, num b) {
-		switch (operation) {
-		case OperationType_impl::Add:      add_impl(dest, a, b); break;
-		case OperationType_impl::Subtract: sub_impl(dest, a, b); break;
-		case OperationType_impl::Multiply: mul_impl(dest, a, b); break;
-		case OperationType_impl::Divide:   div_impl(dest, a, b); break;
-		case OperationType_impl::Assign:   assign_impl(dest, a); break;
-		}
-	}
-	// clang-format on
-
-
-private:
+class Compiler {
 	// The Compilation logic
 	/**
 	 * The design pattern of the compile stage:
@@ -138,6 +89,28 @@ private:
 	 * The process of nested expressions will be lazy,
 	 * meaning that it will not be processed until necessary
 	 */
+
+	/**
+	 * Pipeline
+	 * 
+	 * 1. Raw string
+	 * 2. BracketParser - compose bracket structure
+	 * 3. Tokenlizer    - tokenlize raw string. identify and convert value
+	 * 4. Compiler      - transform tokens into instructions, flatten the operation tree
+	 */
+
+public:
+	// APIs
+
+	static CompileResult compile(std::string_view source, Expression& result) {
+		Compiler_impl compiler(source, result);
+		return compiler.run();
+	}
+
+private:
+	// Implementation
+
+	// ======== BracketParser ========
 
 	struct Range_impl {
 		tx::u32 offset, size;
@@ -238,6 +211,8 @@ private:
 	};
 
 
+	// ======== Tokenlizer ========
+
 	enum class TokenType_impl : tx::u8 {
 		Constant,
 		Variable,
@@ -253,9 +228,10 @@ private:
 		void setOperatorType(OperationType_impl type) { index = static_cast<tx::u16>(type); }
 		bool isOperator() const { return type == TokenType_impl::Operator; }
 		bool isConstant() const { return type == TokenType_impl::Constant; }
-		bool isVaraible() const { return type == TokenType_impl::Variable; }
+		bool isVariable() const { return type == TokenType_impl::Variable; }
 		bool isExpression() const { return type == TokenType_impl::Expression; }
 		bool isRegister() const { return type == TokenType_impl::Register; }
+		bool isBuffer() const { return isConstant() || isVariable(); }
 	};
 	using Constant_impl = num;
 	using Variable_impl = std::string_view;
@@ -334,7 +310,6 @@ private:
 			}
 		}
 
-		// @return break, because reached bracket
 		void parseToken_impl() {
 			char c = m_source[m_index];
 			if (hasIncomingBrackets() && // bound check for the bracket array
@@ -432,6 +407,7 @@ private:
 			case '*': return OperationType_impl::Multiply;
 			case '/': return OperationType_impl::Divide;
 			};
+			return OperationType_impl::Invalid;
 		}
 
 		static bool isNumber_impl(char c) {
@@ -453,6 +429,7 @@ private:
 	};
 
 
+	// ======== Compiler ========
 
 	class Compiler_impl {
 		/**
@@ -515,7 +492,6 @@ private:
 		 * Accessability: composed by Tokenlizer, read and transfer in Compiler
 		 * Lifetime: vector created during compilation, will be destoried after compilation
 		 * Type: compilation data (meta)
-		 * (reversed)
 		 * 
 		 * TokenBuffer
 		 * Store the tokens generated by Tokenlizer.
@@ -534,29 +510,30 @@ private:
 		 * They acts like stack, where the base data will stay, and their child object (expression / bracket) will expand after them.
 		 * The processed data will be deleted.
 		 * Because the stack like design require them to operate from the back, so in order to
-		 * follow normal order of operation (left to right), we need to reverse the data for every section (every expression)
+		 * follow normal order of operation (left to right), we need to reverse the tokens for every section (every expression)
+		 * And for the expressions, since they do not need traversal, we can just leave them like that
 		 */
 
-		/**
-		 * Pipeline
-		 * 
-		 * 1. Raw string
-		 * 2. BracketParser - compose bracket structure
-		 * 3. Tokenlizer    - tokenlize raw string. identify and convert value
-		 * 4. Compiler      - transform tokens into instructions, flatten the operation tree
-		 */
 	public:
 		Compiler_impl(
 		    std::string_view source,
 		    Expression& bin) : m_bin(bin), m_source(source) {}
 
 		// top layer function to be called
-		void run() {
+		CompileResult run() {
 			compile_impl();
+			m_bin.registerCount = hs.countMax();
+			m_bin.commandCount = m_commandBufferSize;
+			return CompileResult{
+				.commandCount = m_commandBufferSize,
+				.constantCount = m_constantBufferSize,
+				.variableCount = static_cast<tx::u32>(m_variableBuffer.size()),
+				.varibaleNames = std::move(m_variableBuffer)
+			};
 		}
 
 	private:
-		Expression m_bin;
+		Expression& m_bin;
 		std::string_view m_source;
 
 		// buffers
@@ -572,7 +549,7 @@ private:
 
 		// register
 
-		tx::HandleSystem<tx::u8> hs;
+		gm::HandleSystemBase<tx::u8> hs;
 		tx::u8 registerNew() { return hs.addHandle(); }
 		void registerFree(tx::u8 id) { hs.deleteHandle(id); }
 
@@ -634,6 +611,15 @@ private:
 		std::array<StackObject_impl, stackCapacity> m_stack; // stores the index of the stack top (end of section) in token
 		tx::u32 m_stackPtr = 0;
 
+		// stores the parameter for `handleExpressionExpansion_impl` call
+		// Attension: this is not the primary state storage. the stack and token buffer is what store the state
+		// see "The state problem - handle expression expansion order problem"
+		struct ExpressionContext {
+			OperationType_impl operation;
+			tx::u8 resultReg; // technically this is already in global (in the stack object), but for the sake of "no brain function call", i'll just keep it here
+			bool isFirstMajorExpr;
+		} m_context;
+
 		/**
 		 * all compile functions will output to the end of m_bin.commandQueue
 		 * 
@@ -666,6 +652,34 @@ private:
 		 * Note: though the expression buffer is indeed dynamic, it will not be modified, until it's corresponding parent expression is finished compiling, when the back of it will be deleted
 		 * Note: whenever consumed a register token, it must be freed immediatly after
 		 * Note: the compilation of each expression should not manage their result register. instead, the parent scope of that expression will have the ownership of that register, and the responsibility of freeing it
+		 * 
+		 * The lifetime of the major expression register(in the compileExpression_impl -> majorExprReg):
+		 * It will be created if the expression is have more then one major expression
+		 * It would become the result register of the following major expressions
+		 * The value of it will be cleared and overwritten over and over, but it will not be freed, until the current expression is done compiling.
+		 * In the case of expanding new expression, it would be written into token cache, then freed by the next iteration, who consumes the value in the register
+		 * 
+		 * The expanding logic for `compileExpression_impl`
+		 * *The above expanding logic is for `compileMajorExpression_impl`.*
+		 * Similar to `compileMajorExpression_impl`, `compileExpression_impl` also need to save the state:
+		 * - the register that stores the result of the previous processed values (the old resultReg)
+		 * - the operator between the old resultReg and the major expression with expansion in it
+		 * But different from majorExpression, it does not need to delete tokens,
+		 * because that's already done in `compileMajorExpression_impl`, since they share the same token buffer.
+		 * 
+		 * The state problem - handle expression expansion order problem
+		 * `handleExpressionExpansionMajor_impl` does 2 things to the token buffer:
+		 * 1. save it's own state
+		 * 2. expand the new expression - tokenlize the expression - push more token to the end of the token buffer
+		 * But the problem is, after major expression saved it's own state, the upper layer:
+		 * the `compileExpression_impl` layer also need to save it's own state, **before expanding the new expression**.
+		 * Solution: thanks to the state machine nature of this compiler, we can just put a global context struct that stores the required parameters for the
+		 * `handleExpressionExpansion_impl` call, update that context struct everytime before calling `compileMajorExpression_impl`, and call `handleExpressionExpansion_impl` in `handleExpressionExpansionMajor_impl`
+		 * And for the `begin` case (`handleExpressionExpansionBegin_impl`) there's no need for it to be called before expansion,
+		 * since `handleExpressionExpansionBegin_impl` have nothing to do with the token buffer.
+		 * But notice that `handleExpressionExpansionMajorBegin_impl` still need to call `handleExpressionExpansion_impl`, since in the parent scope it might be in the middle
+		 * 
+		 * Note: all register pushed in the token buffer as register tokens, are becoming temporary registers, and have their lifetime managed by token buffer
 		 */
 
 		/**
@@ -686,48 +700,89 @@ private:
 
 		// resumable
 		// compiles the stack top expression
+		// if no expansion required, this function along called one will compile an expression
+		// but if expansion happens, then this function will be called to compile the expanded expression;
+		// after it's done, this function will be called another time to compile the left over of the parent expression
+		// The structure:
+		// [majorExpr][minorOp][majorExpr][minorOp][majorExpr]
+		// 1. find the minorOp to determind the range of the major expression
+		// 2. process the majorExpr
+		// 3. goto step 1; when no more minorOp is found (minorPos == end), process one more time for the last majorExpr, and break
 		void compileExpression_impl() {
 			const tx::i32 end = m_stackPtr == 1 ? -1 : stackParent_impl().tokenIndex;
 			const tx::i32 begin = stackTop_impl().tokenIndex;
 
 			if (!((begin - end) % 2)) { // token count not odd: error
-				return; // DevNote: error handling
+				return; // DevNote: error handling: unary operators
 			}
 
 			tx::u8 resultReg = stackTop_impl().context.resultRegister;
+			m_context.resultReg = resultReg;
 			tx::u8 majorExprReg = registerNew();
 
 			// compilation loop
 			tx::i32 current = begin;
-			while (current > end) {
-				// find the next minor operation token
-				tx::i32 minorPos = findNextMinorOperator_impl(current, end);
+			// find the next minor operation token
+			tx::i32 minorPos = findNextMinorOperator_impl(current, end);
 
-				bool breakFlag = compileMajorExpression_impl(current, minorPos, majorExprReg);
+			// first major expression - assign directly to resultReg
+			m_context.isFirstMajorExpr = 1;
+			bool breakFlag = compileMajorExpression_impl(current, minorPos, majorExprReg);
+			if (breakFlag) { // interrupt - expand nested expression
+				// since it's the first major expression, there's nothing to do
+				return;
+			}
+
+			pushCommand_impl( // merge result of major expression to resultReg
+			    resultReg,
+			    OperationType_impl::Assign,
+			    makeValueID_impl(majorExprReg, false),
+			    tx::InvalidU8);
+
+			// no need to add merge command, because the compile major expression above directly uses the resultReg
+			if (minorPos == end) { // then the entire expression only have one major expression - return
+				registerFree(majorExprReg);
+				exitExpression_impl();
+				return;
+			}
+			current = minorPos - 1;
+
+			// the operation with the next major expression
+			OperationType_impl operation = m_tokenBuffer[minorPos].getOperatorType();
+			m_context.operation = operation;
+			m_tokenBuffer.pop_back(); // delete the minor operator token
+			stackTop_impl().tokenIndex--;
+
+			m_context.isFirstMajorExpr = 0;
+			while (current > end) {
+				minorPos = findNextMinorOperator_impl(current, end);
+
+				breakFlag = compileMajorExpression_impl(current, minorPos, majorExprReg);
 				if (breakFlag) { // interrupt - expand nested expression
-					registerFree(majorExprReg);
+					//handleExpressionExpansion_impl(resultReg, operation);
+					// this function will be called in `handleExpressionExpansionMajor_impl` instead
+					// see "The state problem - handle expression expansion order problem"
 					return;
 				}
+
 				pushCommand_impl( // merge result of major expression to resultReg
 				    resultReg,
-				    m_tokenBuffer[minorPos].getOperatorType(),
+				    operation,
 				    makeValueID_impl(resultReg, false),
 				    makeValueID_impl(majorExprReg, false));
-				if (minorPos > end) m_tokenBuffer.pop_back(); // delete the minor operator token
+				if (minorPos > end) { // if not at the end
+					operation = m_tokenBuffer[minorPos].getOperatorType();
+					m_context.operation = operation;
+					m_tokenBuffer.pop_back(); // delete the minor operator token
+					stackTop_impl().tokenIndex--;
+				}
 
 				current = minorPos - 1;
 			}
 
 			// clean up
 			registerFree(majorExprReg);
-
-			const tx::u32 exprBufferEnd =
-			    m_stackPtr == 1 ? 0 : stackParent_impl().tokenIndex + 1; // inclusive for erase
-			m_expressionBuffer.erase(
-			    m_expressionBuffer.begin() + exprBufferEnd,
-			    m_expressionBuffer.end());
-
-			stackPop_impl();
+			exitExpression_impl();
 		}
 		tx::i32 findNextMinorOperator_impl(tx::i32 current, tx::i32 end) {
 			while (current > end) {
@@ -746,6 +801,43 @@ private:
 			return operation == OperationType_impl::Add ||
 			       operation == OperationType_impl::Subtract;
 		}
+		// handles expressionBuffer and stack
+		void exitExpression_impl() {
+			const tx::u32 exprBufferEnd =
+			    m_stackPtr == 1 ? 0 : stackParent_impl().tokenIndex + 1; // inclusive for erase
+			m_expressionBuffer.erase(
+			    m_expressionBuffer.begin() + exprBufferEnd,
+			    m_expressionBuffer.end());
+
+			stackPop_impl();
+		}
+		// when the expression expansion triggers, the token layout it like this:
+		// [majorExpr (with expansion)] [minorOp (the one minorPos is pointing to)]
+		// so what this function need to do:
+		// - push an operator token
+		// - then push a register token after, which stores the resultReg
+		// and for the major expression with expansion, just leave it alone, because `compileMajorExpression_impl` already managed the state
+		void handleExpressionExpansion_impl(tx::u8 resultReg, OperationType_impl operation) {
+			m_tokenBuffer.push_back(
+			    makeOperatorToken_impl(operation));
+
+			// make a new register, assign the value of resultReg to it.
+			// this new register will be a temporary register, just to store the old value of resultReg
+			tx::u8 tempReg = registerNew();
+			pushCommand_impl( // assign the value of resultReg to tempReg
+			    tempReg,
+			    OperationType_impl::Assign,
+			    makeValueID_impl(
+			        resultReg, false),
+			    tx::InvalidU8);
+
+			m_tokenBuffer.push_back(Token_impl{
+			    .type = TokenType_impl::Register,
+			    .index = tempReg });
+			// update stack
+			stackTop_impl().tokenIndex += 2; // this is stack top because this will be called by the `handleExpressionExpensionMajor_impl` before expanding the new expression
+			// see "The state problem - handle expression expansion order problem"
+		}
 
 		// basically compile a section(which is separated by minor operation)
 		// all the compilation happens here
@@ -760,10 +852,10 @@ private:
 			// first token (must be operand)
 			if (currentToken.isOperator()) {
 				// DevNote: error
-				return;
+				return 1;
 			}
 			if (currentToken.isExpression()) { // it is an expression -> expand it
-				handleExpandingExpressionBegin_impl(
+				handleExpressionExpansionMajorBegin_impl(
 				    currentToken,
 				    resultReg);
 				return 1;
@@ -773,8 +865,8 @@ private:
 				    OperationType_impl::Assign,
 				    makeValueID_impl(
 				        currentToken.index,
-				        currentToken.isRegister(),
-				        currentToken.isVaraible()),
+				        currentToken.isBuffer(),
+				        currentToken.isVariable()),
 				    tx::InvalidU8);
 				if (currentToken.isRegister())
 					registerFree(currentToken.index);
@@ -809,7 +901,7 @@ private:
 					break;
 				}
 				if (currentToken.isExpression()) { // it is an expression -> expand it
-					handleExpandingExpression_impl(
+					handleExpressionExpansionMajor_impl(
 					    currentToken,
 					    current,
 					    operation,
@@ -822,8 +914,8 @@ private:
 					    makeValueID_impl(resultReg, false),
 					    makeValueID_impl(
 					        currentToken.index,
-					        currentToken.isRegister(),
-					        currentToken.isVaraible()));
+					        currentToken.isBuffer(),
+					        currentToken.isVariable()));
 					if (currentToken.isRegister())
 						registerFree(currentToken.index);
 				}
@@ -834,11 +926,12 @@ private:
 			m_tokenBuffer.erase(
 			    m_tokenBuffer.begin() + end + 1,
 			    m_tokenBuffer.end());
+			stackTop_impl().tokenIndex = m_tokenBuffer.size() - 1;
 
 			return 0;
 		}
 		// handle expression that's at the front of the parent expression
-		void handleExpandingExpressionBegin_impl(
+		void handleExpressionExpansionMajorBegin_impl(
 		    Token_impl currentToken,
 		    tx::u8 resultReg) {
 			Expression_impl expr = m_expressionBuffer[currentToken.index];
@@ -849,10 +942,14 @@ private:
 			    .type = TokenType_impl::Register,
 			    .index = resultReg });
 
+			// handle expression expansion in the `compileExpression` layer - see "The state problem - handle expression expansion order problem"
+			if (!m_context.isFirstMajorExpr)
+				handleExpressionExpansion_impl(m_context.resultReg, m_context.operation);
+
 			// expanding (tokenlize) the expression
 			expandExpression_impl(expr, resultReg);
 		}
-		void handleExpandingExpression_impl(
+		void handleExpressionExpansionMajor_impl(
 		    Token_impl currentToken,
 		    tx::i32 current,
 		    OperationType_impl operation,
@@ -874,6 +971,10 @@ private:
 
 			// update stack
 			stackTop_impl().tokenIndex = m_tokenBuffer.size() - 1;
+
+			// handle expression expansion in the `compileExpression` layer - see "The state problem - handle expression expansion order problem"
+			if (!m_context.isFirstMajorExpr)
+				handleExpressionExpansion_impl(m_context.resultReg, m_context.operation);
 
 			// expanding (tokenlize) the expression
 			expandExpression_impl(expr, expressionResultRegister);
@@ -921,13 +1022,6 @@ private:
 		StackObject_impl& stackTop_impl() { return m_stack[m_stackPtr - 1]; }
 		StackObject_impl& stackParent_impl() { return m_stack[m_stackPtr - 2]; }
 
-		tx::u32 stackGetExpressionCount_impl() {
-			return stackTop_impl().expressionIndex - stackParent_impl().expressionIndex;
-		}
-		tx::u32 stackGetExpressionBegin_impl() {
-			return stackTop_impl().expressionIndex;
-		}
-
 
 		// helpers
 
@@ -964,10 +1058,10 @@ private:
 			    m_tokenBuffer);
 			m_constantBufferSize = tokenlizer.run().constantOffset;
 
-			if (oldExpressionBufferSize < m_expressionBuffer.size())
-				std::reverse(
-				    m_expressionBuffer.begin() + oldExpressionBufferSize,
-				    m_expressionBuffer.end());
+			// if (oldExpressionBufferSize < m_expressionBuffer.size())
+			// 	std::reverse(
+			// 	    m_expressionBuffer.begin() + oldExpressionBufferSize,
+			// 	    m_expressionBuffer.end());
 			if (oldTokenBufferSize < m_tokenBuffer.size())
 				std::reverse(
 				    m_tokenBuffer.begin() + oldTokenBufferSize,
@@ -1003,22 +1097,124 @@ private:
 			    tx::u8{ 0x40 }, isVariableBuffer);
 		}
 	};
-
-
-	static void compile_impl(std::string_view source, Expression& bin) {
-		Compiler_impl compiler(source, bin);
-		compiler.run();
-	}
-
-	static num evaluate_impl(Expression& bin) {
-		return num{};
-	}
-
-	// helper functions
 };
+
+
+
+
+class Evaluator {
+public:
+	// APIs
+
+	static num evaluate(Expression expression) {
+		num result;
+		bool success = Evaluator_impl(expression).run(&result);
+		if (!success) return num{};
+		return result;
+	}
+	static void setRegisterFileMemory(void* ptr, size_t size) {
+		registerFile = static_cast<num*>(ptr);
+		registerFileSize = size;
+	}
+	static void setRegisterFileMemory(std::span<num> span) {
+		registerFile = static_cast<num*>(span.data());
+		registerFileSize = span.size();
+	}
+
+private:
+	// Implementation
+
+	// ======== Members ========
+
+	inline static num* registerFile = nullptr;
+	inline static size_t registerFileSize = 0;
+
+	// ======== Operations ========
+
+	// operation table
+	static void add_impl(num& dest, num a, num b) { dest = a + b; }
+	static void sub_impl(num& dest, num a, num b) { dest = a - b; }
+	static void mul_impl(num& dest, num a, num b) { dest = a * b; }
+	static void div_impl(num& dest, num a, num b) { dest = a / b; }
+
+	static void assign_impl(num& dest, num val) { dest = val; }
+
+	// clang-format off
+
+	static void performOperation_impl(OperationType_impl operation, num& dest, num a, num b) {
+		switch (operation) {
+		case OperationType_impl::Add:      add_impl(dest, a, b); break;
+		case OperationType_impl::Subtract: sub_impl(dest, a, b); break;
+		case OperationType_impl::Multiply: mul_impl(dest, a, b); break;
+		case OperationType_impl::Divide:   div_impl(dest, a, b); break;
+		case OperationType_impl::Assign:   assign_impl(dest, a); break;
+		}
+	}
+	// clang-format on
+
+
+	// ======== Evaluator ========
+
+	class Evaluator_impl {
+	public:
+		Evaluator_impl(Expression expr)
+		    : m_bin(expr) {}
+
+		// @return success
+		bool run(num* val) {
+			if (registerFileSize < m_bin.registerCount) return false;
+
+			evaluate_impl();
+
+			(*val) = registerFile[0];
+			return true;
+		}
+
+	private:
+		Expression m_bin;
+
+		void evaluate_impl() {
+			for (tx::u32 i = 0; i < m_bin.commandCount; i++) {
+				executeCommand_impl(m_bin.commandBuffer[i]);
+			}
+		}
+		void executeCommand_impl(Command cmd) {
+			performOperation_impl(
+			    cmd.m_operation,
+			    registerFile[cmd.m_dest],
+			    valueIdGetValue(cmd.m_vala),
+			    valueIdGetValue(cmd.m_valb));
+		}
+
+		// helper for decoding the command
+
+		tx::u8 valueIdGetIndex(tx::u8 valueId) {
+			return tx::bit::erased(valueId, tx::u8{ 0xC0 }); // 0x80 | 0x40
+		}
+		bool valueIdIsFromBuffer(tx::u8 valueId) {
+			return tx::bit::contains_all(valueId, tx::u8{ 0x80 });
+		}
+		bool valueIdIsVariableBuffer(tx::u8 valueId) {
+			return tx::bit::contains_all(valueId, tx::u8{ 0x40 });
+		}
+		num valueIdGetValue(tx::u8 valueId) {
+			tx::u8 index = valueIdGetIndex(valueId);
+			if (valueIdIsFromBuffer(valueId)) {
+				return valueIdIsVariableBuffer(valueId) ?
+				           m_bin.variableBuffer[index] :
+				           m_bin.constantBuffer[index];
+			} else {
+				return registerFile[index];
+			}
+		}
+	};
+};
+} // namespace tx::csl
 
 /**
  * Things to add:
  * 1. Variable write back - the assign operator
  * 2. constant merge / constant pre-compute
+ * 3. special case of a major expr only having 1 or 2 entry
+ * 4. negative number and operator- ambiguity - IMPORTANT
  */

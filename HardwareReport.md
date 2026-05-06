@@ -1540,7 +1540,7 @@ And after that, will be the final boss: The `TXCSL` engine!
 
 # 2026-04-28
 
-## 2026-04-28 23:08:07:<br>Category: Development Report<br>Topic: Bask to `TXCSL`
+## 2026-04-28 23:08:07:<br>Category: Development Report<br>Topic: Back to `TXCSL`
 Today I am are back to TXCSL, since I am done with the infrastructure, and.. well I just want to get some core logic done, then I'll not be afraiding that it will not even function in teh future.
 I am still working on `ExpressionEvaluator` today, it's a pretty heavy piece.
 *Parsers are never a easy thing.*
@@ -1823,6 +1823,148 @@ In `compileMajorExpression_impl`, when a return (an expansion of new expression)
 But in `compileExpression_impl` (the parent function of `compileMajorExpression_impl`), there's no such logic implemented. and this inconsistency resulted that the processed value will be lost.
 Fix: add similar logic
 *(refactor required, not fixed yet)*
+
+# 2026-05-03
+
+## 2026-05-03 23:41:30:<br>Category: Development Report<br>Topic: Complete TXCSL: Compiler and Evaluator
+*The original `ExpressionEvaluator` is split into `Compiler` and `Evaluator`.*
+
+The TXCSL core engine: expression evaluator is being organized into the `tx::csl` namespace, and separated into 2 parts:
+- The Compiler
+- The Evaluator
+
+### Additional Documentation
+```cpp
+ /**
+ * Note: the compilation of each expression should not manage their result register. instead, the parent scope of that expression will have the ownership of that register, and the responsibility of freeing it
+ * 
+ * The lifetime of the major expression register(in the compileExpression_impl -> majorExprReg):
+ * It will be created if the expression is have more then one major expression
+ * It would become the result register of the following major expressions
+ * The value of it will be cleared and overwritten over and over, but it will not be freed, until the current expression is done compiling.
+ * In the case of expanding new expression, it would be written into token cache, then freed by the next iteration, who consumes the value in thregister
+ * 
+ * The expanding logic for `compileExpression_impl`
+ * *The above expanding logic is for `compileMajorExpression_impl`.*
+ * Similar to `compileMajorExpression_impl`, `compileExpression_impl` also need to save the state:
+ * - the register that stores the result of the previous processed values (the old resultReg)
+ * - the operator between the old resultReg and the major expression with expansion in it
+ * But different from majorExpression, it does not need to delete tokens,
+ * because that's already done in `compileMajorExpression_impl`, since they share the same token buffer.
+ * 
+ * The state problem - handle expression expansion order problem
+ * `handleExpressionExpansionMajor_impl` does 2 things to the token buffer:
+ * 1. save it's own state
+ * 2. expand the new expression - tokenlize the expression - push more token to the end of the token buffer
+ * But the problem is, after major expression saved it's own state, the upper layer:
+ * the `compileExpression_impl` layer also need to save it's own state, **before expanding the new expression**.
+ * Solution: thanks to the state machine nature of this compiler, we can just put a global context struct that stores the required parameters for the
+ * `handleExpressionExpansion_impl` call, update that context struct everytime before calling `compileMajorExpression_impl`, and cal`handleExpressionExpansion_impl` in `handleExpressionExpansionMajor_impl`
+ * And for the `begin` case (`handleExpressionExpansionBegin_impl`) there's no need for it to be called before expansion,
+ * since `handleExpressionExpansionBegin_impl` have nothing to do with the token buffer.
+ * But notice that `handleExpressionExpansionMajorBegin_impl` still need to call `handleExpressionExpansion_impl`, since in the parent scope it mighbe in the middle
+ * 
+ * Note: all register pushed in the token buffer as register tokens, are becoming temporary registers, and have their lifetime managed by token buffer
+ */
+```
+
+### Bug explaination
+for example in the expression (10 - 2) * (3 + 4), it's considered as one major expression. and the first operand of this major expression is an expression, so it expands. in the handleExpressionExpansionMajorBegin_impl, i directly used the resultReg as the resultReg of the new expanding expression. since there's nothing before the first operand, overwriting it will not cause a problem, but will increase some performance and save register. But the current problem is that when the major expression resumes from the expansion, it set resultReg to itself, and then freed the resultReg, according to the register consuming logic. there are 2 ways i can think of to solve this conflict, one is create a new register in the handleExpressionExpansionMajorBegin_impl, another is adding an if check for self setting in the compileMajorExpression_impl.
+
+### Today's progress
+- Fixed yesterday's remianing bug
+- Found more bugs and fixed them
+- structure re-organize
+- Implemented the `Evaluator`
+
+## 2026-05-03 23:42:53:<br>Category: Development Report<br>Topic: Complete TXCSL stage 1
+After the completion of the `Compiler` and the `Evaluator`, and passed 22 test cases provided by `claude.ai`, the development of TXCSL engine finally reached to a mile stone.
+Currently, the TXCSL engine can solve basic expressions, including bracket structures, variables, while remaining correct BODMAS sequences.
+
+### Status
+Development duration: 4.28 ~ 5.3 (6 days)
+LOC(Lines of code): 1198
+
+### Following TXCSL development goals
+1. Variable write back - the assign operator
+2. constant merge / constant pre-compute
+3. special case of a major expr only having 1 or 2 entry
+4. negative number and operator- ambiguity - IMPORTANT
+
+# 2026-05-04
+
+## 2026-05-04 23:29:37:<br>Category: PCB Structure<br>Topic: Transistors: Toggling On and Off
+*Use a small electrical signal (a electricity current with small voltage) to control a bigger current.*
+
+Transistors are just on and off / high and low switches. They take in an electrical current, and output either 0 or that exact electrical current, depending on the controler signal (the *Gate*).
+By connecting transistors, logic gates are made. By connecting logic gates, CPUs are made...
+But in the most fundamental usage, transistors are just switches that toggles between high and low, on and off, 1 and 0...
+
+### MOSFET
+MOSFET (Metal-Oxide-Semiconductor Field-Effect Transistor) is a specialized transistor that's **voltage-controlled and solid-state.**
+Just like explained above, it have 3 pins:
+- **Gate**: The "controler" that controls either the output is high or low (Pin 1 in KiCad)
+- **Drain**: The "output", will be either low or same as the input current (Pin 2 in KiCad)
+- **Source**: The "input" (Pin 3 in KiCad)
+**Typical Model in KiCad:** `IRF9540N`
+
+In a P-Channel MOSFET, when *Gate* is low, *Drain* will be high; when *Gate* is high, *Drain* is low. (Kinda like a `NOT` if seen between *Gate* and *Drain*, or a `XOR` if seen in total)
+In a N-Channel MOSFET, when *Gate* is high, *Drain* will be high; when *Gate* is low, *Drain* is low. (it's the opposite of P-Channel, it kinda like `AND` if seen in total)
+
+The electrical current at *Gate* have to be either same with *Source*, or 0. Any voltage other than that will result in Linear Region (it's not fully on but not fully off either)
+
+### NPN and PNP
+NPN (Negative-Positive-Negative) and PNP (Positive-Negative-Positive) are 2 major types of Bipolar Junction Transistor (BJT), that are **current-controlled**.
+Just like explained above, they have 3 pins:
+- **Emitter**: The "input" that supplies electrons (n-type) (Pin 1 in KiCad)
+- **Base**: The "controler" that decide the output (p-type) (Pin 2 in KiCad)
+- **Collector**: The"output" that will be high/low (n-type) (Pin 3 in KiCad)
+**Typical Model in KiCad(NPN):** `2N3904`
+
+NPN is similar to the N-Channel MOSFET, when *Base* is high, the *Collector* will be high; and vice versa.
+PNP is similar to the P-Channel MOSFET, when *Base* is low, the *Collector* will be high; and vice versa.
+*Logic is similar with MOSFET, but implementation (internal structure) is different*
+
+Unlike MOSFET who need the voltage of *Gate* to be exactly the same with *Source*, for NPN and PNP, as long as there is electrical current at *Base* that can be detected, *Collector* will be high.
+
+**Important Note**
+NPN and PNP transistors have a voltage lost when electrical current go through them, *usually about 0.7V*.
+Additionally, it will consume the current at *Base*, so remember to add resistor before the connection of *Base*.
+
+## 2026-05-04 23:44:46:<br>Category: Development Report<br>Topic: The USB-A connection
+It's just straight forward connecting D+/D- to D+/D-, connecting SHIELD and GND to GND, and leaving VBUS not connecting, since the USB-A port is for keyboard, and I am targeting wireless keyboard... since the one I have is wireless.
+If there's opportunity, I'll probably add power supply to it.
+
+## 2026-05-04 23:43:36:<br>Category: Development Report<br>Topic: The Power Buttom
+It's an encapsulation of the ESP32 dev board's power button, since I don't what the user be pressing the dev board directly.
+What it does is just controling the overall power supply of the dev board (the VIN), instead of talking to EN and IO0 (which actually does the exact same thing internally).
+
+### Logic
+`VBUS`: the raw input from the USB-C (5V)
+`VIN`: the 5V input (output in this case)
+
+---
+First there's a P-Channel MOSFET Transistor. It has `VBUS` as it's *Source*, and `VIN` as it's *Drain*.
+For the *Gate*, first there's teh default state: `VBUS` connecting to it with a 10k resister, as a "pull up" that keep the *Gate* high so *Drain* is low.
+Then there are 2 lines connecting to *Gate*, they both start from `GND`, and end at *Gate*.
+These 2 are setted to be disconnect by default. But when they do connect, the *Gate* will be grounded and become low, then the *Drain* will be high.
+For the first line, there's a push button. It is the "Power Button". When the button is pressed, the connection is completed, and *Gate* will be low.
+For the second line, there's an NPN Transistor, who has its *Emiiter* be `GND`, and *Collector* be *Gate*.
+The NPN Transistor is the "soft toggle" that can be controled by software.
+It has its *Base* connecting to a GPIO pin with a 1k ~ 10k resister between. When the GPIO pin pulls high, the NPN Transistor will connect `GND` to *Gate*, pulling the *Drain* to be high.
+
+---
+So finally, whenever the power button is pressed down, VIN will be high, and the ESP32 will be booted. When booted, the GPIO pin that's connecting to the NPN Transister's *Base* have to be immediately setted to high, which then **"relay"** the high current of VIN.
+And finally when the software need to shutdown, it set the GPIO pin to low, which then low the VIN.
+
+### Note
+Connect to VCC make the line high; connect to GND make the line low. When VCC and GND touches, GND wins.
+
+# 2026-05-05
+
+## 2026-05-05 23:25:52:<br>Category: Development Report<br>Topic: Hardware Component Checklist
+*Since the PCB design is pretty much finished by now, I will start considering the source of me to purchase those actual parts.*
+The hardware 
 
 
 

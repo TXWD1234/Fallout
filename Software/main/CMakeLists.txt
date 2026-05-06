@@ -11,6 +11,7 @@ idf_component_register(
 		"esp_common"
 		"espressif__usb"
 		"espressif__usb_host_hid"
+		"esp_driver_uart"
 
 		"TXLib"
 		"TXCSL_Engine"

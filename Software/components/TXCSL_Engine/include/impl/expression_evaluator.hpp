@@ -549,7 +549,7 @@ private:
 
 		// register
 
-		gm::HandleSystemBase<tx::u8> hs;
+		HandleSystemBase<tx::u8> hs;
 		tx::u8 registerNew() { return hs.addHandle(); }
 		void registerFree(tx::u8 id) { hs.deleteHandle(id); }
 

@@ -1964,8 +1964,71 @@ Connect to VCC make the line high; connect to GND make the line low. When VCC an
 
 ## 2026-05-05 23:25:52:<br>Category: Development Report<br>Topic: Hardware Component Checklist
 *Since the PCB design is pretty much finished by now, I will start considering the source of me to purchase those actual parts.*
-The hardware 
+The hardware parts I need:
+- The ESP32-S3-DevKitC-1 Devboard
+- A LCD Screen that supports Parallel 8080 and ILI9488
+- An USB-C receptacle
+- An USB-A receptacle
+- An MOSFET Transistor
+- An NPN Transistor
+- Several Capacitors: 0.1uf, 10uf
+- Several resistors: 10k, 5.1k
+- Wires
 
+# 2026-05-06
+
+## 2026-05-06 12:38:38:<br>Category: Development Report<br>Topic: Hardware Component Dimensions
+**ESP32-S3-DevKitC-1 Devboard:** 62.74mm * 25.4mm * ~10mm (WHD)
+**LCD Screen:** 85mm * 55mm * ~35mm(10mm board + 25mm pins) (WHD), 2mm (margin width min), 5mm(margin size max)
+**LCD Screen 2:** 96.6mm * 60.9mm * ??? (WHD), 91.5mm * (screen size WH), (margin: left, right, top, bottom)
+**USB-C receptacle:** 9.8mm * 3.3mm * 14.6mm (WHD), 8.8mm (receptacle length)
+**USB-A receptacle:** 5.4mm * 14mm (WH)
+**Power button:** 16mm * 16mm * 21mm (WHD)
+**Wires:** 1mm (Diameter)
+
+## 2026-05-06 23:43:16:<br>Category: Development Report<br>Topic: Hardware Part Choices
+**ESP32-S3-DevKitC-1**
+https://www.amazon.ca/Freenove-ESP32-S3-WROOM-Dual-core-Microcontroller-Wireless/dp/B0DHJYR4D4/ref=sr_1_15?dib=eyJ2IjoiMSJ9.9Lo-WN2abvkCc0eCLRo1Cmr1uU2ccHiNwtZIcz-agRRqm4WtXjurqp1wajR2EpfR95XMJa7vfCRsap8sqOlR2TUJoihRm-fbmAYGjk5D3Z7UaaMAQleLQB6JsiHaEkcG7-WPmLGsK0WNb966vsygq6Kv9GyebOSrYUP-fQsVI6CcEUONmYu3Pq79-IPJQwHVwLsXvINC8tEAXuktUngAX-z-GnPA51zESge_QbJSuk0a_NzXGhl5ORb_sUtlJTqdOapWR1cOieiYZVTc1z_tlk7x4g3aTDdAxrPY6tmtUKM.hn_BNTdS_ndYc0brz11FHh39Hr5SWrrJNLdoVuqjqjM&dib_tag=se&keywords=ESP32-S3-DevKitC-1&qid=1778125522&sr=8-15&th=1
+
+**LCD Screen**
+https://www.amazon.ca/Interface-Controller-Raspberry-Electronics-Projects/dp/B0GYZDFCVS/ref=sr_1_115?crid=3HAM3W61Z0U4&dib=eyJ2IjoiMSJ9.Xu-BRV9N0t1JRzTH8TQIIwCf0hU1iLVG4HfUm4f-O2TVnEXO0FZtm3_SxzZBB4TjIeqfBZoenNJ5xZ2_B_lFEOy7lkYrFNTL751TKpv7CiSBFMFJkwNvvRIgbfq8dFaLvcS7ixUwAe-dSl_Khi2DVfSW4NgnSCdFTOg4cPMtDFBaysTchkMdF5uY4WPsfI4l1U32tvUK4627vi2U5NmZKU2qPc4bKb4EcyB5Qv7QoGtPOgi2CKhjfnV3uMFfKNziKKEbR4VwuVHcTB4n8icQpOvSwL2bAG3Ck2fB15uAGfk.Ebs7Gyk4UR7KwcecZwU_aHgDfMMQz-FvA5nCK2TZtXo&dib_tag=se&keywords=HiLetgo+3.5%22+TFT+LCD+Display+ILI9486%2FILI9488+480x320+36+Pins+for+Arduino+Mega2560&qid=1778122038&sprefix=%2Caps%2C113&xpid=J7KU_6bz29pBR
+
+**USB-C Receptacle**
+https://www.amazon.ca/10PCS-USB-Connector-Set-High-Speed/dp/B0F66HBLH1/ref=sr_1_8?crid=3MSELCXWCOXGZ&dib=eyJ2IjoiMSJ9.O54r-3yG1VQmbDL8W1TpWmbYpw28jMGUqvtMpRRFJBeiGT2w4SYr2JyYcQ8l2nSt6Ezo2A-mRCnPWDU6Q7a9v1C8Kp5NJWTBBaYgM9Hn1EMTjffMCi4hAZQdd5gThBbh7PkPUpAPxmVjJM4_e0Rhpn7zd1gsmPuWzM25-e26x4ffzbyLY-XU56u_92YqrAqb40ewoHl6PioB_bxoIvOOyo11LsAA8-ZSDMY3GoXoOd6e4TR9N-c8wd1iTjlhsdTWAKv_Yn7I3ET5Jjr65-oE8ziFxvCuQIdg2DzfXY-P6ko.PRpYuCpf9mkW9pCSG3cLrPJnH7H0mQukJmgkbKfNhyE&dib_tag=se&keywords=Generic+USB+C+Connector+Board+DIY+3.1+Female+Type-C+Receptacle+Connector&qid=1778105844&sprefix=generic+usb+c+connector+board+diy+3+1+female+type-c+receptacle+connector%2Caps%2C119&sr=8-8
+
+**USB-A Receptacle**
+https://www.amazon.ca/Breakout-Adapter-Connector-Converter-Pinboard/dp/B0F1Z6W7FP/ref=sr_1_4?crid=3MSELCXWCOXGZ&dib=eyJ2IjoiMSJ9.1HBIrvHZJi9KlYz63GR1JPHalm-_I9gSfQ6aelvfu_cuEorAc99S5JKVjNTIavj53ALMjTTdPt7YweWOKHD__z3YC-JkzZj4DYa6XmVJw8Ny6IYgNlU_Epqd58WHzIfURUKreyL4Y5v09Z2DpqXgOuJJMHxHKYOQv-l8h1SP4mTH7y0ygF4dvDORzxAT4Y2ghSUS1Tq5nIL6hnfzOFdebyZaBzDCnyHXKZGYhUDGmMO6cwi2wLVgyAA-lwapVKsaSBZwskph70A9f8bpL24w4ikDCWzVyMxlt2BSbrVwFCk.VcUK5tQR0DNhbC0H08gCbW3RPCvPnpL0_C1OeEzm5bo&dib_tag=se&keywords=Generic+USB+C+Connector+Board+DIY+3.1+Female+Type-C+Receptacle+Connector&qid=1778105747&sprefix=generic+usb+c+connector+board+diy+3+1+female+type-c+receptacle+connector%2Caps%2C119&sr=8-4
+
+**MOSFET Transistor**
+https://www.amazon.ca/Chanzon-10pcs-IRFZ24NPBF-MOSFET-Transistor/dp/B08M372XR2/ref=sr_1_3_sspa?crid=2SSCBY8LMDOMJ&dib=eyJ2IjoiMSJ9.g2KafjC2KdkQIUheNYOYZJZSEOJyYwaEnT1zsP16IJPPh-AgE4WJ5G2PsY5ceclFF6ZFI2P5p43FL16eHOlc2ZBGNYHsJ6zrrYQJtjMDSlG3vBOorjJxzKqie355MCGsJ6rJU-1m_k-fjUJRESneQtwOksgA2P4RpPww1f_4ixuH7QEEpg8pv-3wQ8SWk4n5uVFYa-fjrn1U0bISOJxYJwHvtQvw7LHFQV6IN7oDtUV4cHafFbyPTAwcqorXe_qphhzRBavcZWYzrlyR5VmAQSiLOXOymJJef3_0kNqnNds.7q7P35_J4U1hy4TL1aeL0veePqxmR6lWOmIGi1ho100&dib_tag=se&keywords=mosfet+p-channel&qid=1778039918&sprefix=mosfet+p-channel%2Caps%2C106&sr=8-3-spons&sp_csd=d2lkZ2V0TmFtZT1zcF9hdGY&psc=1
+
+**NPN Transistor**
+https://www.amazon.ca/Chanzon-10pcs-TIP31C-Darlington-Transistor/dp/B08LYHJ4WV/ref=sr_1_52_sspa?crid=GCN347NQH07U&dib=eyJ2IjoiMSJ9.LZvbbEE6Do7dz4bErup_rkDE9PtHWoxzjiJCj8sMEFhJbGre0qliqk39BSkhMoc-5HXXpyX7tjaz3jV_pJvvNrvs8PBv4EQTmeyytZDUP7ghaKJxqYU3P7PGVt58DAAJLLWLglJWIqOoLUf7yS2gTAuE9P1n380ybc_uu_U1zo9rwGOymfXi0F_osrGO-IWGvmFcfO5wjc66qja2eS9FkznS5zTOoltKpoKIUoFBFDkCRbGRA7Hg8gx5f8XNFWJ832sy3ESsnlRqlnE6vXhvCRciQr8AGEWg8siZt3SQmZ0.xNePf9mJOzgfT5IQXqa0hhY4eCpHhIV_VqmeML7sn5U&dib_tag=se&keywords=npn+transistor&qid=1778040185&rnid=3276483011&sprefix=NPN%2Caps%2C100&sr=8-52-spons&sp_csd=d2lkZ2V0TmFtZT1zcF9idGY&psc=1
+
+**Power Button**
+https://www.amazon.ca/uxcell%C2%AE-Momentary-Button-Switch-Mounting/dp/B07HFWJ1MK/ref=sr_1_5?crid=YZ3ZQA1WSOHK&dib=eyJ2IjoiMSJ9.mZIPM5v3bvUGGFO_wDIx8f4WqsPHNAO5VSVoO6oZZINZGqS-r7DdjhxPg26QumXv_h1ggK0NOYKysfbrfV8ibDLI6HsHOZHil1KL2cJUNRsUOuFTW7l2oNxk7cdRWIWupXaOmGkmNkSz7QcrdW29UJxVwb-31JfZCl6OJw7Mz7KBTV6QdwDfN3ZtPtkNd7qDY-EuEN2mScXwdAMLER2Z-ftSYEBEsSWsa2ggv46RFWCqajXZfQt5eHD1wr9FLY51EqIMRCraFWQAV3yayNDarWktKzwJAsBpWYkkxcteJGg.eSYNhdynybJPI8sYGP0i02BrFHTon2x9IY8ANq7osV0&dib_tag=se&keywords=Metal%2BButton%2BSwitch%2BLight%2B5v&qid=1778085163&sprefix=metal%2Bbutton%2Bswitch%2Blight%2B5v%2Caps%2C153&sr=8-5&th=1
+
+**Total Price**
+```
+20.95 + 20.7 + 11.24 + 8.09 + 9.99 + 8.99 + 10.99 = 90.95
+```
+
+**Total Koi**
+```
+90.95 / 5 * 7 = 127.33
+```
+**18 Hours!**
+
+
+
+
+
+
+
+
+
+Todo:
+add set pin in FrameComposer
 
 
 

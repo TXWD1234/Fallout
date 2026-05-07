@@ -8,7 +8,7 @@
 namespace tx {
 // be aware of the dangling reference of the deleted handles
 template <std::integral T>
-class HandleSystem {
+class HandleSystemBase {
 public:
 	using value_type = T;
 

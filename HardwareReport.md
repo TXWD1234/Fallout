@@ -2019,11 +2019,257 @@ https://www.amazon.ca/uxcell%C2%AE-Momentary-Button-Switch-Mounting/dp/B07HFWJ1M
 ```
 **18 Hours!**
 
+# 2026-05-07
 
+## 2026-05-07 23:29:59:<br>Category: Personal Journal<br>Topic: Fighting Fusion 360 and Wine
+Fusion 360 cannot run on arch.
+This is the conclusion of this entire day.
+To be honest, I almost did no work for the project today.
+But in reality, all the time was spent fighting fusion and wine.
+The problem is fairly simple: I have a very big problem using Windows, and I found myself cannot suffer under Windows for decent working.
+Therefore, I was desperately trying to make Fusion 360 work on Linux.
+For the first attempt, I found there's a github repo called "Autodesk-Fusion-360-for-Linux" (https://github.com/cryinkfly/Autodesk-Fusion-360-for-Linux).
+At first glance, I tought that will be it.
+But after I cloned the repo and tried the installation script, I soon find out that the repo is not made for arch, or at least, I couldn't get it working.
+Then I start trying to launch Fusion 360 executable manually via directly using the `wine64` executable, since I had some experience using wine.
+But the obsticles I ran into was "undefeatable": The Fusion 360 executable can be launched, but cannot talk to my browser, therefore cannot login.
+My final attempt was to use the login URL from when I try to log in on Windows, and launch the `AdskIdentityManager.exe` with the login token (code) directly.
+But the result was inexplicable. The log from `AdskIdentityManager.exe` showed that the token was valid, and the local port query also shows that the Fusion process is listening in a specific port that `AdskIdentityManager.exe` should send signal to. But for some unknown reason, when I launched the `AdskIdentityManager.exe` with the token and with the "success" log from it, the actual Fusion process does not respond anything.
+At last, I tried installing it fresh on the Arch partition, but this time I couldn't even get the launching working.
+So eventually after one day of trying, failure is my final conclusion.
 
+# 2026-05-08
 
+## 2026-05-08 23:41:23:<br>Category: Development Report<br>Topic: Separating TXCSL from the Software component system
+After some examination of the code of TXCSL, it's scale and size already deserves it's own repository.
+Additionally, I want to debug and test the code when I am working on TXCSL, but I could not run any code compiled by the esp-idf compiler, since I do not have the ESP32 chip yet.
+During the first stage developemnt, I simply copied the code to my personal project's `main.cpp`, and editing it from there.
+But as the scale gets bigger, I need to separate it into files.
+Keeping it as one file, or one component who is to be copy and pasted everywhere is very not ideal.
+Therefore, the desicion of separating it was made.
+It would be an stand-alone C++ CMake project as a library, where a dummy project will be including it and testing it.
+Once development is finished, the TXCSL lib will then be linked by the actual TXCompute project, and used as an engine, not an integrated internal logic class.
 
+# 2026-05-09
 
+## 2026-05-09 23:10:54:<br>Category: Documentation<br>Topic: TXCSL
+TXCSL (TX Computational Scripting Language) is a bash-like, virtual machine based scripting language, which is capable of:
+- Compute basic expressions
+- Create variables
+- Create functions
+
+*TXCSL is targeting to be a DSL for computation. It is an enhancement of regular calculators, but not a turing complete programming language.*
+
+TXCSL operates in the pipeline described below:
+> **Every line of code will be *compiled* into instructions, then executed.**
+Even the result appears instantly, it had been through the process of compilation.
+
+## Interface Data Structs
+
+```cpp
+struct Expression {
+	std::span<Command> commandBuffer; // the commands / instructions
+	std::span<num> constantBuffer; // constant values that are involved in the expression
+	std::span<num> variableBuffer; // variable values that are involved in the expression
+	tx::u32 registerCount; // the required registers when evaluating
+	tx::u32 commandCount; // the count of commands / instructions
+};
+```
+
+```cpp
+struct CompileResult {
+	tx::u32 commandCount;
+	tx::u32 constantCount;
+	tx::u32 variableCount;
+	std::vector<std::string_view> varibaleNames; // for the caller of compile() to fill in the variabe buffer
+};
+```
+
+## Compilation
+
+*There is the where the major processing logic of TXCSL is.*
+Every line of code in TXCSL is treated as expression, and will be processed by the `tx::csl::Compiler`.
+
+### The design pattern of the compilation
+Each stage will have it's own class.
+That class will be a temporary object, which will outputs a certain result of the stage.
+The purpose of the class is to maintain it's own internal state (because they are all state machin design), and the temporary memory they allocate.
+
+### Compilation pipeline
+The compilation pipeline flow is:
+1. Raw string
+2. BracketParser - compose bracket structure
+3. Tokenlizer    - tokenlize raw string. identify and convert value
+4. Compiler      - transform tokens into instructions, flatten the operation tree
+The process of nested expressions will be lazy, meaning that it will not be processed until necessary. 
+When the Compiler encounters an unexpanded expression, it will call the Tokenlizer again, and tokenlize the unexpanded expression.
+
+# 2026-05-10
+
+## 2026-05-10 22:24:32:<br>Category: Fusion 360<br>Topic: Basic Operations
+### Sketch
+Click the sketch button, and select a surface.
+That surface will act like the 2D plane that's being drew on.
+The shapes will become 2D entities in a 3D space.
+
+### Extrude
+Make a shape into a body / 3d range.
+Short cut: `E`
+It can be making new bodies, appending to the old body it's physically connecting with / next to, or cut an area of bodies.
+
+## 2026-05-10 22:30:17:<br>Category: CAD Design<br>Topic: Tolerance and Clearance
+### Tolerance
+**3D printing is not 100% accurate.**
+It will have some difference then what the model is.
+That difference it called ***Tolerance***. It's a value that the plus or minus of measurements can vary.
+When designing CADs, the Tolerance have to be considerered in the measurements.
+For example, when designing a hole for a `10mm` shaft targeting a tolerance of `0.2mm` 3d printing machine, the hole should have a diameter of `10.2mm` (ignoring clearance).
+**The typical value of tolerance for 3D printing is `0.2mm` ~ `0.3mm`.**
+
+### Clearance
+It's the designed gap between parts to allow movement.
+When you have a physical hole of `10mm` and a physical shaft of `10mm`, pretend values are exactly, they will not fit right through but get stuck together.
+*Because friction of course.*
+Therefore you need to add some space between the hole and the shaft, so that they can move.
+The gold standard values are:
+| | | |
+|-|-|-|
+`0.1 mm` | **The "Permanent" Fit.** | For parts that supposed to be hammered in and stuck together forever.
+`0.2 mm` | **The "Mechanical" Fit.** | For parts that need to stay together but be removable by hand.
+`0.3 mm` | **The "Moving" Fit.** | For parts that need to move freely like hinges and sliders.
+
+# 2026-05-12
+
+## 2026-05-12 22:37:44:<br>Category: Development Report<br>Topic: TXLib
+### What TXLib is
+https://github.com/TXWD1234/TXLib
+TXLib is my (TX_Jerry's) personal library, that contains the utility helpers I made through out my C++ development.
+I used TXLib for every project of mine after I created TXLib, and update TXLib through out the project development to add more features, or do some refactor, to make it better for future project.
+So far, TXLib had already become somewhat like a formal library, where there are modules, components, architecture etc.
+I always believe as the snow ball row bigger and bigger, with TXLib, I will maky my own development environment, and my development efficiency will be mush higher.
+
+### TXLib in TXCompute the fallout project
+As I use TXLib for every project of mine, TXCompute the fallout project is nor an expection.
+Even if it's a hardware project, there is software part of it (and the software part is not small in my design).
+Therefore TXLib is used and updated during the development of TXCompute.
+Modules of TXLib I used in TXCompute:
+- TXMath
+- TXData
+- TXUtility 
+
+# 2026-05-13
+
+## 2026-05-13 23:50:53:<br>Category: Development Report<br>Topic: The design of The Shell - Hinge
+The Shell (aka the 3D printed crust of the project) is now in production!
+
+### Problem
+The biggest problem of the shell design right now is the hinge between the Screen part and the MCU part.
+I am targeting a laptop-like structure, which makes the hinge necessary, since I want a lid that can close and open freely.
+Additionally, the wires for the screen frame data (in total of 14 wires: D0~D7, VCC, GND, DC, WR, CS, RST) have to somehow go through the hinge to connect to the screen as well.
+
+### Solution
+There will be 2 rectangular prism coming out from the MCU part of the shell (the bottom part), which is hollow inside.
+They will have an horizontal through hole, that's parallel to the long edge of the shell.
+
+The Screen Part of the shell (the top part) will be split into 3 parts, each are individual pieces. The separation line is at where each of the 2 hinges are located.
+There will be a empty space in the location of each hinge, shared by the 2 parts from left and right.
+Each part will have a hollow cylinder coming out, along the horizontal axis.
+These cylinders will be inserted into the through hole of the rectangular prism from the MCU part, which created the hinge.
+
+Every 7 wire can create a perfect hexagon shape (6 surrounding one), which evaluates to a diameter of 3mm, as if each wire has a 1mm diameter.
+The inner hole of the cylinder from Screen Part need to contain this wire combination, therefore we can determind the inner diameter: `3mm + 0.4mm (tolerance) = 3.4mm.`
+Then the Outer diameter: `3.4mm + 1mm * 2 (both side) = 5.4mm`.
+
+As the through hole in the rectangular prism from the MCU part have to contain the cylinder, with enough clearance to move it around, but also not too loose, it's inner diameter can be determind as: `5.4mm + 0.4mm = 5.8mm`.
+Then the outer diameter: `5.4mm + 1.5mm * 2 = 8.8mm`
+
+Now for the empty gap of the Screen Part to fit the hinge:
+*Measurements in the perspective of looking from one side of the Screen Part (front view)*
+Depth and Height: Since we need to allow movement, and the radius ratio of the rotation is `(1 + √2) / 2`, therefore the depth / height is: `8.8mm * (1 + √2) / 2 = 10.6216mm -> 11mm`.
+Width: The inner part of the rectangular prism is `3.4mm`, for the wire combination can fit through. Plus the necessary distance (`4mm`) for the mechanical hinge to be stable, roughly it's `11mm` as well. (The measurement here can be flexible)
+
+And finally the dimension of the rectangular prism:
+Height / Depth: `8.8mm` as the outer diameter of the though hole.
+Width: `11mm - 2 * (0.2 (Tolerance) + 0.3 (Loose clearance)) = 10mm`
+Horizontal Wall: `(10mm - 3.4) / 2 = 3.3mm`
+
+# 2026-05-17
+
+## 2026-05-17 23:42:45:<br>Category: Development Report<br>Topic: TXLib refactor
+During the development of the fallout project: TXCompute, I found a lot friction using my TXLib, primarily because of the CMake structure and inclusion friction.
+Therefore, I decided to improve the installation pipeline of TXLib by a CMake refactor.
+Here is the refactor report:
+
+### New Architecture
+
+#### Installation
+- `add_txlib.cmake` is the general TXLib entry, which is independent with TXLib context (TXCMake).
+  - Can be fetched with `curl` and then be included in the user's CMakeLists.txt directly.
+- TXLib should only be added by `add_txlib.cmake`, or link the whole library by:
+  ```cmake
+  add_subdirectories(<path_to_txlib> <path_to_txlib_bin>)
+  ```
+- `add_txlib.cmake` only prepare the source of TXLib (either using local dir or fetching from github).
+  - The linking of modules will be done by `add_txlib.cmake` calling TXLib's internal `link_txlib.cmake` script.
+- There are files that set the parameter of TXLib installation. These files exist in `TXLib/TXCMake/installation/`, and all have prefix of `txlib_`.
+
+##### The Pipeline
+There are 3 stages to the installation pipeline:
+1. Prepare source
+   - in `add_txlib.cmake`
+   - finished by `"TXLib: Sources are ready."`
+   - use local dir or fetch from github
+2. Resolve module list
+   - in `TXCMake/installation/setup.cmake`
+   - finished by `"TXLib: Modules: ..."`
+3. Add modules
+   - in `TXCMake/installation/setup.cmake`
+   - finished by `"TXLib: Done adding TXLib."`
+  
+#### Modules
+- All modules register their path in a `module_registry.cmake`. `setup_txlib.cmake` adds the components using `module_registry.cmake`.
+  - Modules can have their module dir different from their module name.
+  - All the registry variables are global with naming convension: prefix: `TXLib_${MODULE_NAME}_`.
+  - The registry should include:
+    - `TXLib_${moduleName}_SOURCE_DIR` Module Source Directory Path, relative to `${TXLib_SOURCE_DIR}/modules/`.
+    - `TXLib_${moduleName}_DEPENDENCIES` Module Dependency within TXLib. Provide the module name: `TX...`.
+    - `TXLib_MODULES` A list of all module names.
+  - You can use `tx_module_registry_register()` helper in `module_registry_register.cmake` to do the registry. It will take care of all the above.
+- All modules manage their own dependencies.
+  - When a dependency from TXLib of the target module is not satisfied, the target module add the missing dependency module (in public scope).
+- All modules will be declared by cmake function `tx_txlib_module()` in `txlib_module.cmake`.
+  - When adding new modules, the registry file need to be updated.
+  - After running function `tx_txlib_module()`, the cmake target will be created, and can be modified for things that `tx_txlib_module()` didn't account for, such as the external dependencies.
+
+# 2026-05-18
+
+## 2026-05-18 23:32:56:<br>Category: Development Report<br>Topic: Today's progress: TXLib refactor almost completed
+### Add TXFoundation module
+### TXData refactor
+### TXMath refactor
+- remove basic_utils.hpp
+  - move numeric utility functions in basic_utils.hpp to numeric_utils.hpp
+    - removed some legacy function that are already implemented by STL
+  - move type alias into TXFoundation/basic_types.hpp
+- add numeric concept in TXFoundation/type_traits.hpp for all numbers
+- update CMakeLists.txt to adapt new architecture
+### TXUtility refactor
+### Add topological sorting to setup.cmake
+
+# 2026-05-21 23:55:21
+
+## 2026-05-21 23:32:18:<br>Category: Development Report<br>Topic: TerminalEngine
+The TerminalEngine will consist of 3 parts:
+- input handler (`InputLine`)
+- output handler (Callback system)
+- render handler (Grid system and `TextRenderer`)
+
+Several data structure need to be created:
+- InputLine
+- StaticStringPool
+
+## 2026-05-21 23:55:44:<br>Category: Development Report<br>Topic: Today's work
+Create and finish `InputLine`.
 
 
 

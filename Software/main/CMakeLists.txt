@@ -14,6 +14,6 @@ idf_component_register(
 		"esp_driver_uart"
 
 		"TXLib"
-		"TXCSL_Engine"
 		"TXESP_Infrastructure"
+		"TerminalEngine"
 )

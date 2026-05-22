@@ -4,7 +4,7 @@ if(NOT CMAKE_SCRIPT_MODE_FILE)
 	include("${CMAKE_CURRENT_SOURCE_DIR}/add_txlib.cmake")
 	tx_add_txlib(
 		LOCAL_DIR
-			/home/TX_Jerry/Programming/dev/libs/TXLib
+			/home/TX_Jerry/temp/TXLibBranchMain/TXLib
 		COMPONENTS
 			TXMath
 			TXData

@@ -2271,6 +2271,25 @@ Several data structure need to be created:
 ## 2026-05-21 23:55:44:<br>Category: Development Report<br>Topic: Today's work
 Create and finish `InputLine`.
 
+# 2026-05-25
+
+## 2026-05-25 23:08:52:<br>Category: Development Report<br>Topic: ESP `Buffer` Container
+> *There have to be one day that I make this.*
+The first day I saw `std::vector` I was thinking that.
+And today is that day.
+You see ESP environment introduces `heap_caps_malloc`, which makes the standard `std::vector`... kinda not that good.
+Also, for my sepcific use case, I don't want it be able to expand, and I want to be able to set the heap caps attribute directly.
+Therefore, making my own memory container is necessary.
+And as a programmer that makes library, I thought why not put this in my library?
+So... `tx::StaticGrowArr` emerges!
+And by a simple wrapper `Buffer`, it fits the ESP envirnment perfectly!
+
+# 2026-05-26
+
+## 2026-05-26 22:27:29:<br>Category: Development Report<br>Topic: `StringPool` - EvictingRingBuffer
+This is one of the core infrastructure of the TerminalEngine.
+It manages the string literals entered by the user, and manage them in a way such that when encountered overflow, the old data will be deleted to make space for new data.
+This will be used to manage the input and output messages of the Terminal.
 
 
 Todo:

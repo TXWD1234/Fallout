@@ -3,6 +3,8 @@
 #pragma once
 #include "impl/ili9488_driver_panel.hpp"
 
+namespace tx::esp {
+
 class FrameComposer {
 public:
 	FrameComposer() {
@@ -22,7 +24,7 @@ public:
 	FrameComposer(FrameComposer&&) = delete;
 	FrameComposer& operator=(FrameComposer&&) = delete;
 
-	void draw(tx::Coord topLeft, tx::Coord dimension, tx::u16* data) { // DevNote: probably add finish callback for async correctness
+	void draw(Coord topLeft, Coord dimension, u16* data) { // DevNote: probably add finish callback for async correctness
 		Driver::draw(m_io, topLeft, dimension, data);
 	}
 	bool valid() const { return m_valid; }
@@ -97,4 +99,5 @@ private:
 inline FrameComposer& getFrameComposer() {
 	static FrameComposer fc;
 	return fc;
+}
 }

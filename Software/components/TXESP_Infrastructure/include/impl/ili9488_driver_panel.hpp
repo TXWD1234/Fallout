@@ -10,17 +10,19 @@
 
 #include "tx/math.h"
 
+namespace tx::esp {
+
 class ILI9488DriverPanel {
 	using io_t = esp_lcd_panel_io_handle_t;
 
 public:
 	static void init(io_t io) { initLCD_impl(io); }
-	static void draw(io_t io, tx::Coord topLeft, tx::Coord dimension, tx::u16* data) { sendData_impl(io, topLeft, dimension, data); }
+	static void draw(io_t io, Coord topLeft, Coord dimension, u16* data) { sendData_impl(io, topLeft, dimension, data); }
 
 
 private:
 	// @param duration ms
-	static void delay_impl(tx::u32 duration) {
+	static void delay_impl(u32 duration) {
 		vTaskDelay(pdMS_TO_TICKS(duration));
 	}
 
@@ -29,7 +31,7 @@ private:
 	// command system
 
 	// place all commands with default parameter at the top
-	inline static constexpr tx::u8 cmd[] = {
+	inline static constexpr u8 cmd[] = {
 		// Initialization
 		0xC0, // Power Control 1
 		0xC1, // Power Control 2
@@ -50,8 +52,8 @@ private:
 		0x2C  // Write memory
 	};
 	struct CommandParamMeta_impl {
-		tx::u16 offset = 0;
-		tx::u8 size = 0;
+		u16 offset = 0;
+		u8 size = 0;
 	};
 	inline static constexpr CommandParamMeta_impl paramMeta[] = {
 		{ 0 , 2 },
@@ -67,7 +69,7 @@ private:
 		{ 15, 4 }
 	};
 	// stores the tuned parameters
-	inline static constexpr tx::u8 param[] = {
+	inline static constexpr u8 param[] = {
 		0x17, 0x15,
 		0x41,
 		0x00, 0x12, 0x80,
@@ -80,10 +82,10 @@ private:
 		0xC6,
 		0xA9, 0x51, 0x2C, 0x82
 	};
-	inline static constexpr tx::u32 m_cmdParamCount = 11;
+	inline static constexpr u32 m_cmdParamCount = 11;
 
 	// this is more likely the documentation?
-	enum Command_impl : tx::u32 {
+	enum Command_impl : u32 {
 		Power1           =  0, // Power Control 1
 		Power2           =  1, // Power Control 2
 		VCOM             =  2, // VCOM control
@@ -106,30 +108,30 @@ private:
 
 	// basic helper functions
 
-	static void sendCommand_impl(io_t io, tx::u32 commandId, const void* parameter = nullptr, size_t param_size = 0) {
+	static void sendCommand_impl(io_t io, u32 commandId, const void* parameter = nullptr, size_t param_size = 0) {
 		if (commandId < m_cmdParamCount && !param_size)
 			esp_lcd_panel_io_tx_param(io, cmd[commandId], param + paramMeta[commandId].offset, paramMeta[commandId].size);
 		else
 			esp_lcd_panel_io_tx_param(io, cmd[commandId], parameter, param_size);
 	}
-	static tx::u8 getCommand(tx::u32 commandId) { return cmd[commandId]; }
+	static u8 getCommand(u32 commandId) { return cmd[commandId]; }
 
-	static void setDataRegion_impl(io_t io, tx::Coord topLeft, tx::Coord dimension) {
-		tx::Coord bottomRight = topLeft + dimension.offset(-1, -1);
-		tx::u8 xparam[] = {
-			static_cast<tx::u8>((topLeft.x >> 8) & 0xFF), static_cast<tx::u8>(topLeft.x & 0xFF),
-			static_cast<tx::u8>((bottomRight.x >> 8) & 0xFF), static_cast<tx::u8>(bottomRight.x & 0xFF)
+	static void setDataRegion_impl(io_t io, Coord topLeft, Coord dimension) {
+		Coord bottomRight = topLeft + dimension.offset(-1, -1);
+		u8 xparam[] = {
+			static_cast<u8>((topLeft.x >> 8) & 0xFF), static_cast<u8>(topLeft.x & 0xFF),
+			static_cast<u8>((bottomRight.x >> 8) & 0xFF), static_cast<u8>(bottomRight.x & 0xFF)
 		};
-		tx::u8 yparam[] = {
-			static_cast<tx::u8>((topLeft.y >> 8) & 0xFF), static_cast<tx::u8>(topLeft.y & 0xFF),
-			static_cast<tx::u8>((bottomRight.y >> 8) & 0xFF), static_cast<tx::u8>(bottomRight.y & 0xFF)
+		u8 yparam[] = {
+			static_cast<u8>((topLeft.y >> 8) & 0xFF), static_cast<u8>(topLeft.y & 0xFF),
+			static_cast<u8>((bottomRight.y >> 8) & 0xFF), static_cast<u8>(bottomRight.y & 0xFF)
 		};
 		esp_lcd_panel_io_tx_param(io, getCommand(SetDataRegionX), xparam, 4);
 		esp_lcd_panel_io_tx_param(io, getCommand(SetDataRegionY), yparam, 4);
 	}
-	static void sendData_impl(io_t io, tx::Coord topLeft, tx::Coord dimension, tx::u16* data) {
+	static void sendData_impl(io_t io, Coord topLeft, Coord dimension, u16* data) {
 		setDataRegion_impl(io, topLeft, dimension);
-		esp_lcd_panel_io_tx_color(io, 0x2C, data, dimension.x * dimension.y * sizeof(tx::u16));
+		esp_lcd_panel_io_tx_color(io, 0x2C, data, dimension.x * dimension.y * sizeof(u16));
 	}
 
 
@@ -139,7 +141,7 @@ private:
 		// maybe Gamma correction?
 		// https://github.com/Bodmer/TFT_eSPI/blob/master/TFT_Drivers/ILI9488_Init.h
 
-		for (tx::u32 i = 0; i <= AdjustControl; i++)
+		for (u32 i = 0; i <= AdjustControl; i++)
 			sendCommand_impl(io, i);
 		sendCommand_impl(io, SleepOut);
 		delay_impl(120);
@@ -149,3 +151,4 @@ private:
 	}
 };
 using Driver = ILI9488DriverPanel;
+}

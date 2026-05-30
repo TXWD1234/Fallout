@@ -5,6 +5,8 @@
 #include "tx/math.h"
 #include "tx/bit_trick.hpp"
 
+namespace tx::esp {
+
 class USBKeyboardInputHandler {
 	/**
 	 * Design referenced from GLFW
@@ -17,13 +19,13 @@ public:
 	// clang-format off
 
 	// event
-	enum class Action : tx::u32 {
+	enum class Action : u32 {
 		Press,
 		Release,
 		Repeat
 	};
-	enum class Key : tx::u32 {
-		Invalid       = tx::InvalidU32,
+	enum class Key : u32 {
+		Invalid       = InvalidU32,
 		/* Printable keys */
 		Space         = 32,
 		Apostrophe    = 39,  /* ' */
@@ -43,36 +45,37 @@ public:
 		Num_9         = 57,
 		SemiColon     = 59,  /* ; */
 		Equal         = 61,  /* = */
-		A             = 65,
-		B             = 66,
-		C             = 67,
-		D             = 68,
-		E             = 69,
-		F             = 70,
-		G             = 71,
-		H             = 72,
-		I             = 73,
-		J             = 74,
-		K             = 75,
-		L             = 76,
-		M             = 77,
-		N             = 78,
-		O             = 79,
-		P             = 80,
-		Q             = 81,
-		R             = 82,
-		S             = 83,
-		T             = 84,
-		U             = 85,
-		V             = 86,
-		W             = 87,
-		X             = 88,
-		Y             = 89,
-		Z             = 90,
 		LeftBracket   = 91,  /* [ */
 		BackSlash     = 92,  /* \ */
 		RightBracket  = 93,  /* ] */
 		GraveAccent   = 96,  /* ` */
+
+		A             = 97,
+		B             = 98,
+		C             = 99,
+		D             = 100,
+		E             = 101,
+		F             = 102,
+		G             = 103,
+		H             = 104,
+		I             = 105,
+		J             = 106,
+		K             = 107,
+		L             = 108,
+		M             = 109,
+		N             = 110,
+		O             = 111,
+		P             = 112,
+		Q             = 113,
+		R             = 114,
+		S             = 115,
+		T             = 116,
+		U             = 117,
+		V             = 118,
+		W             = 119,
+		X             = 120,
+		Y             = 121,
+		Z             = 122,
 
 		/* Function keys */
 		Escape        = 256,
@@ -146,7 +149,7 @@ public:
 		RightSuper    = 347,
 		Menu          = 348,
 	};
-	enum class Mod : tx::u32 {
+	enum class Mod : u32 {
 		Shift         = 0x0001, // 0x22
 		Control       = 0x0002, // 0x11
 		Alt           = 0x0004, // 0x33
@@ -159,8 +162,8 @@ public:
 	using InputCallbackFunc_t = void (*)(Key, Action, Mod); // key, action, mod
 
 	static void init() { USBFramework::driverInit(driverCallback_impl); }
-	static void setCallback(InputCallbackFunc_t func) { cb = func; }
 	static void uninit() { USBFramework::driverUninit(); }
+	static void setCallback(InputCallbackFunc_t func) { cb = func; }
 
 private:
 	// clang-format off
@@ -303,7 +306,7 @@ private:
 			USBFramework::interfaceUninit(device);
 			break;
 		case HID_HOST_INTERFACE_EVENT_INPUT_REPORT:
-			tx::u8 data[8];
+			u8 data[8];
 			size_t dataSize;
 			USBFramework::interfaceGetReport(device, data, 8, &dataSize);
 			handleReport_impl(data, dataSize);
@@ -315,21 +318,21 @@ private:
 
 	// Actual handler logic
 
-	inline static constexpr const tx::u8 RepeatBeginCounterMax = 64; // DevNote: Maybe make these configurable?
-	inline static constexpr const tx::u8 RepeatCounterMax = 4;
+	inline static constexpr const u8 RepeatBeginCounterMax = 64; // DevNote: Maybe make these configurable?
+	inline static constexpr const u8 RepeatCounterMax = 4;
 
 	// runtime data
 	struct KeyCacheEntry_impl {
 		Key key;
-		tx::u16 repeatBeginCounter; // this is just a "have we waited long enough to start repeating" flag effectively
-		tx::u16 repeatCounter;
+		u16 repeatBeginCounter; // this is just a "have we waited long enough to start repeating" flag effectively
+		u16 repeatCounter;
 		void clear() {
 			key = Key::Invalid;
 			repeatBeginCounter = 0;
 			repeatCounter = 0;
 		}
 	};
-	inline static constexpr const tx::u32 KeyCacheSize = 6;
+	inline static constexpr const u32 KeyCacheSize = 6;
 	inline static KeyCacheEntry_impl keyCache[KeyCacheSize] = {
 		{ Key::Invalid, 0, 0 },
 		{ Key::Invalid, 0, 0 },
@@ -338,15 +341,15 @@ private:
 		{ Key::Invalid, 0, 0 },
 		{ Key::Invalid, 0, 0 }
 	};
-	inline static tx::u32 keyCacheOffset = 0;
+	inline static u32 keyCacheOffset = 0;
 	inline static Mod modifier;
 
-	inline static constexpr const tx::u32 KeyReportKeySize = 6;
+	inline static constexpr const u32 KeyReportKeySize = 6;
 
 	// the entry function of key handling
-	static void handleReport_impl(tx::u8* reportData, size_t size) {
+	static void handleReport_impl(u8* reportData, size_t size) {
 		size -= 2;
-		const tx::u8* data = reportData + 2; // current pressed key data
+		const u8* data = reportData + 2; // current pressed key data
 
 		// * modifier
 		handleModifier_impl(reportData[0]);
@@ -363,9 +366,9 @@ private:
 		bool press[KeyReportKeySize] = {};
 
 		// ** key cache integrity check & iteration
-		for (tx::u32 i = 0; i < keyCacheOffset; i++) {
-			tx::u32 it = keyDataFind_impl(data, keyCache[i].key);
-			if (tx::valid(it)) { // it was pressed at last time
+		for (u32 i = 0; i < keyCacheOffset; i++) {
+			u32 it = keyDataFind_impl(data, keyCache[i].key);
+			if (valid(it)) { // it was pressed at last time
 				repeat[i] = 1;
 				used[it] = 1;
 			} else { // release
@@ -374,31 +377,31 @@ private:
 		}
 
 		// ** handle new pressed keys
-		for (tx::u32 i = 0; i < KeyReportKeySize; i++) {
+		for (u32 i = 0; i < KeyReportKeySize; i++) {
 			press[i] = !used[i] && data[i] <= 0x73 && keyCodeTable[data[i]] != Key::Invalid;
 		}
 
 		// * handle key event callback
-		for (tx::u32 i = 0; i < KeyReportKeySize; i++) { // the other half of the modifier logic
+		for (u32 i = 0; i < KeyReportKeySize; i++) { // the other half of the modifier logic
 			if (!press[i]) continue;
 			press[i] = 0; // to erase it from press if it's a modifier
 			Key key = keyCodeTable[data[i]];
 
 			if (key == Key::CapsLock)
-				tx::bit::flip(modifier, Mod::CapsLock);
+				bit::flip(modifier, Mod::CapsLock);
 			else if (key == Key::NumLock)
-				tx::bit::flip(modifier, Mod::NumLock);
+				bit::flip(modifier, Mod::NumLock);
 			else
 				press[i] = 1; // add it back if it's not a modifier
 		}
 
-		for (tx::u32 i = 0; i < keyCacheOffset; i++) { // repeat
+		for (u32 i = 0; i < keyCacheOffset; i++) { // repeat
 			if (repeat[i]) handleRepeat_impl(i);
 		}
 		for (int i = static_cast<int>(keyCacheOffset) - 1; i >= 0; i--) { // release - iterating backward to avoid "move and iterate" index problem
 			if (release[i]) handleRelease_impl(i);
 		}
-		for (tx::u32 i = 0; i < KeyReportKeySize; i++) { // press
+		for (u32 i = 0; i < KeyReportKeySize; i++) { // press
 			if (press[i]) handlePress_impl(data[i]);
 		}
 		/**
@@ -411,15 +414,15 @@ private:
 		 * repeat -> release -> press
 		 */
 	}
-	static void handleModifier_impl(tx::u8 mod) {
+	static void handleModifier_impl(u8 mod) {
 		// clang-format off
-		tx::bit::set(modifier, Mod::Control, tx::bit::contains_any(mod, (tx::u8)0x11));
-		tx::bit::set(modifier, Mod::Shift,   tx::bit::contains_any(mod, (tx::u8)0x22));
-		tx::bit::set(modifier, Mod::Alt,     tx::bit::contains_any(mod, (tx::u8)0x44));
-		tx::bit::set(modifier, Mod::Super,   tx::bit::contains_any(mod, (tx::u8)0x88));
+		bit::set(modifier, Mod::Control, bit::contains_any(mod, (u8)0x11));
+		bit::set(modifier, Mod::Shift,   bit::contains_any(mod, (u8)0x22));
+		bit::set(modifier, Mod::Alt,     bit::contains_any(mod, (u8)0x44));
+		bit::set(modifier, Mod::Super,   bit::contains_any(mod, (u8)0x88));
 		// clang-format on
 	}
-	static void handleRepeat_impl(tx::u32 keyIndex) {
+	static void handleRepeat_impl(u32 keyIndex) {
 		KeyCacheEntry_impl& key = keyCache[keyIndex];
 		if (key.repeatBeginCounter >= RepeatBeginCounterMax) { // already at repeating stage
 			// key.repeatBeginCounter = 0; <---- this used to be a big bug
@@ -431,12 +434,12 @@ private:
 		} else
 			key.repeatBeginCounter++;
 	}
-	static void handleRelease_impl(tx::u32 keyIndex) {
+	static void handleRelease_impl(u32 keyIndex) {
 		KeyCacheEntry_impl& key = keyCache[keyIndex];
 		callCallback_impl(key.key, Action::Release);
 		keyCacheRemove_impl(keyIndex);
 	}
-	static void handlePress_impl(tx::u8 keyCode) {
+	static void handlePress_impl(u8 keyCode) {
 		Key key = keyCodeTable[keyCode];
 
 		callCallback_impl(key, Action::Press);
@@ -450,16 +453,16 @@ private:
 
 	// key cache operations
 
-	static tx::u32 keyDataFind_impl(const tx::u8* data, Key key) {
-		for (tx::u32 i = 0; i < 6; i++) {
+	static u32 keyDataFind_impl(const u8* data, Key key) {
+		for (u32 i = 0; i < 6; i++) {
 			if (keyCodeTable[data[i]] == key) return i;
 		}
-		return tx::InvalidU32;
+		return InvalidU32;
 	}
-	static bool keyDataInclude_impl(const tx::u8* data, Key key) {
-		return tx::valid(keyDataFind_impl(data, key));
+	static bool keyDataInclude_impl(const u8* data, Key key) {
+		return valid(keyDataFind_impl(data, key));
 	}
-	static void keyCacheRemove_impl(tx::u32 index) {
+	static void keyCacheRemove_impl(u32 index) {
 		if (keyCacheOffset == 0) return;
 		keyCacheOffset--;
 		while (index < keyCacheOffset) {
@@ -477,3 +480,4 @@ private:
 	}
 };
 //using KeyboardInput = USBKeyboardInputHandler;
+}

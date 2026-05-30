@@ -10,6 +10,8 @@
 
 #include <atomic>
 
+namespace tx::esp {
+
 class USBFramework {
 	/**
 	 * leave the callbacks for user, it is not what a framework should handle
@@ -85,3 +87,4 @@ private:
 	}
 };
 using USBFW = USBFramework;
+}

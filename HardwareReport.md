@@ -2302,6 +2302,42 @@ It could either be an entry in the `StringPool`, or a user defined message prese
 `StringPool`'s eviction will take affect on it, meanwhile itself will also evict when the lines reaches the maximum.
 *So plus the internal 2 consideration of eviction in `StringPool`, this one is a 3 way invoker.*
 
+# 2026-05-28
+
+## 2026-05-28 23:49:16:<br>Category: Development Report<br>Topic: Data Structure refactor
+The previous buffers all uses one simple wrapper struct `Buffer<T>`, who wraps around `tx::StaticGrowArr<T>`.
+That is a fragile design, because first `Buffer<T>` don't belong to mere TerminalEngine, second the orginal `tx::StaticGrowArr<T>` was holding way too many responsibility: both memory management and grow buffer logic.
+Therefore today I refactored both `Buffer<T>` and `tx::StaticGrowArr<T>`:
+- separate memory management from `tx::StaticGrowArr<T>`, created `tx::BasicStorage` class, which is just a simple heap memory manager;
+- refactored `tx::StaticGrowArr<T>` to adopt the "overlay design pattern", where it don't manage memory, but only operate it.
+- rename `tx::StaticGrowArr<T>` into `tx::GrowArrayOverlay<T>`
+- refactored `Buffer<T>` into 2 parts: Contianer version of `tx::GrowArrayOverlay<T>` and Container version of `tx::CircularQueueOverlay<T>`
+
+# 2026-05-29
+
+## 2026-05-29 18:46:36:<br>Category: Development Report<br>Topic: InputHandler Buffer design
+Context: the input handler handles the input from `USBKeyboardInputHandler`. It provide a callback to `USBKeyboardInputHandler`, and in that callback it push the event data to a `CircularQueue` - the buffer.
+And that buffer is supposed to be set by a higher end consumer, in this case the TerminalEngine. The consumer will read and parse the event data in the buffer periodically, once may consume multiple elements.
+The problem I am deciding right now is how does the consumer read the data, and how to handle the circular logic.
+There are 3 function provided by the `CircularQueue` - the buffer we are using here, that is related with the problem:
+- `push()` add one element at the end of the buffer. if the size ptr reached the end, it will wraps around to the start.
+- `pop()` delete the last element. if the last element is at the end, it will unwrap the wrapped buffer.
+- `full()` check if buffer is full: begin == end.
+I currently have 2 options to consider: *(potentially there are better solutions that I don't know)*
+First, let the InputHandler's callback do the heavy lifting, check `full()` before every `push()`, if true then `pop()` - essentially making a ring buffer. And the consumer will track an index of the previous read element, and update it everytime it read. This index can either have an if wrapping it, or perform a modulo for every query.
+This method would require me to implement random access, or for_each from an index in `CircularQueue`, and the exception will be very subtle, since when the consumer thread stale, the producer might go a full circle in that `CircularQueue` and input will be completly currupted silently. The benefit of it is that it's perfectly thread safe, the `CircularQueue` object is only being operated by the `InputHandler`.
+Second, the `InputHandler` only `push()`, and when the consumer consumes data, it calls `pop()`. When `InputHandler` detects `full()`: excpetion: main thread is staling.
+This method is the simplest, and have an explicit exception. But it makes 2 threads operate `CircularQueue` potentially at the same time.
+
+
+
+
+
+
+## 2026-05-28 23:48:20:<br>Category: Development Report<br>Topic: Input Pipeline of TerminalEngine
+
+
+
 
 Todo:
 add set pin in FrameComposer

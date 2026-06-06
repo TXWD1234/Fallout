@@ -712,6 +712,7 @@ public:
 	// string buffer, and the source of `str` can be safely overwritten or
 	// freed after
 	void print(std::string_view str) {
+		if (m_isInputSession) return;
 		// add to string pool
 		u32 id = m_stringPool.add(str);
 
@@ -723,6 +724,7 @@ public:
 	// the input `str` have to guarantee to not be freed
 	// UB if the memory `str` points to is invalidated
 	void printStatic(const char* str) {
+		if (m_isInputSession) return;
 		// add to line buffer
 		lineBufferPush_impl(Line_impl{ str });
 		renderEvent_output();
@@ -970,8 +972,7 @@ private:
 		// functional keys
 		switch (event.key) {
 		case Key::Enter:
-			handleNewLine_impl();
-			renderEvent_enter();
+			endInputSession();
 			break;
 		case Key::Backspace:
 			if (m_inputLine.deleteFront())
@@ -1582,6 +1583,42 @@ private:
 		    m_lhCacheState.bottomLineEnd);
 	}
 
+public:
+	// =========================================
+	// **************** Session ****************
+	// =========================================
+	/**
+	 * Input Session:
+	 * Start when `startInputSession()` is called
+	 * End when terminal user presses enter or `endInputSession()` is called
+	 * During input session, all `print()` will be ignored (including
+	 * `printStatic()`), and inputHandlerr will be allowed.
+	 * 
+	 * Output Session:
+	 * Default session. Start when TerminalEngine object is initiated, or input
+	 * session had ended; End when input session had started or TerminalEngine
+	 * object is destroied.
+	 * During output session, all terminal user input will be ignored, and
+	 * `print()` will be allowed.
+	 */
+
+	void startInputSession() {
+		m_isInputSession = true;
+		InputHandler::unstale();
+	}
+	void endInputSession() {
+		m_isInputSession = false;
+		InputHandler::stale();
+		session_endInputSession();
+	}
+
+private:
+	bool m_isInputSession = false;
+
+	void session_endInputSession() {
+		handleNewLine_impl();
+		renderEvent_enter();
+	}
 
 
 private:

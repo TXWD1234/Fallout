@@ -2622,17 +2622,7 @@ Consist of simple grid -> pixel converter, line drawer and full redraw function
 
 # 2026-06-05
 
-## 2026-06-05 23:37:15:<br>Category: Development Report<br>Topic: The great pitfall of minor optimization
-I was being smart the whole time when I was making the rest of the Terminal Engine, but when it came to my favourite rendering pipeline, I made a big architectual mistake.
-And it is almost the worse architectual mistake I could ever make: **Minor Optimization**. Specificly, make an minor optimization driven architectual design.
-Just like you can clearly tell in the source code, abruptly from the rest of the terminal engine, the rendering pipeline, driven by `lhCache`, is unexpected fragile and complex.
-All of that complexity trade only for the performance of recomputing the height of each line every scrolling - which is just one integer division each.
-And by creating a cache for that, I officially invented ***State Machine Spaghetti***. There are way to many state variables to maintain, let alone the update complexity is probably already greater then purely SIMD the recomputation.
-And by the way, a cache takes more memory! So that also violated my initial design idea of memory aware.
-So yeah... that was a failure. But at least currently the logic seems to be working.
-Because shipping is more important then performance optimization, following "Make it work before make it fast" rule (*I probably already violated it for like twenty times*), I am not going to refactor it.
-As long as it works, it works.
-
+## 2026-06-05 23:37:15:<br>Category: Development Report<br>Topic: 1
 
 
 

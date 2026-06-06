@@ -910,7 +910,7 @@ The entire screen is mapped into a `24x8` grid system, which each grid has size 
 Each grid is one ASCII character. It would have 4 pixels subtracted from width as horizontal margin (each side 2px), and 8 pixels from height for vertical margin (each side 4px), remaining a `16x32px` space for the actual text.
 The height of one character will be split into 3 parts: top (9px), center (14px), bottom (9px).
 
-*Or maybe move the bottom margin to the top? and maybe changet the parts to: top(8px), center(16px), bottom(8px)*
+*Or maybe move the bottom margin to the top? and maybe change the parts to: top(8px), center(16px), bottom(8px)*
 
 # 2026-04-20
 
@@ -2329,12 +2329,311 @@ This method would require me to implement random access, or for_each from an ind
 Second, the `InputHandler` only `push()`, and when the consumer consumes data, it calls `pop()`. When `InputHandler` detects `full()`: excpetion: main thread is staling.
 This method is the simplest, and have an explicit exception. But it makes 2 threads operate `CircularQueue` potentially at the same time.
 
+### Final Decision
+After analyze, I choosed the second option, but with an additional detail:
+**Use `std::mutex`.**
+All the thread problem can be easily solved by `std::mutex`, and since we are not preformance bounded here, there is no overhead of using thread locks.
+And since the thread problem is not in consideration, the simplest solution wins.
 
+# 2026-05-30
 
+## 2026-05-30 23:38:42:<br>Category: Development Report<br>Topic: The First 3D Printing Test
+Today is the first time my TXCompute Shell got actually printed out in real life.
+Seeing the 3D model appears in real life makes a lot of things different.
+The first problem I encountered is that a lot of places where I designed to have screws, don't have place for human to operate. The space I left is way to small that neither a human hand nor any tools can fit in.
+Another realization is that the tolerance in real life is much bigger then the calculations. The effect of clearance was far from the expectation, and a lot of mathematically sound designs crashes against reality.
+Therefore, my TXCompute Shell design need a refactor too...
+*Omg im gen drowning in the ocean of refactor....*
 
+# 2026-05-31
 
+## 2026-05-31 13:30:47:<br>Category: Development Report<br>Topic: The Terminal Text Grid
+The pixel canvas of the terminal is `480x320`. 
+Each character will have a size of `10x20`, forming a text grid of `48x16`.
+
+## 2026-05-31 21:08:37:<br>Category: Development Report<br>Topic: The Font Data for Terminal
+Because of the limited storage of ESP32, the font data is stored in bitmap, bit packed as one bit is one pixel.
+The font data is in the form of a C array in hex with type `u8`, in a header file, along with a `size_t` constant containing the size of the font data, all in `constexpr const`.
+The header file will be included by the user of the font.
+
+### Generating the Font Data
+**1. Extract picture from ttf**
+A python script is used to perform this operation.
+```python
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+FONT_PATH = "/usr/share/fonts/noto/NotoSansMono-Regular.ttf"  # Change to your actual font file path
+OUTPUT_DIR = "grid_glyphs_bit"
+TARGET_WIDTH = 10
+TARGET_HEIGHT = 20
+
+# 14px to 16px ensures the entire span from top of 'M' to bottom of 'g' fits in 20px
+FONT_SIZE = 14 
+
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+try:
+    font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+except IOError:
+    print(f"Error: Could not load font at {FONT_PATH}")
+    exit(1)
+
+# --- 1. Calculate Global Font Metrics ---
+# We use a standard set of characters to find where the absolute top 
+# and absolute bottom of the font's rendering space are.
+test_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,;."
+max_top = float('inf')
+max_bottom = float('-inf')
+
+for c in test_chars:
+    bbox = font.getbbox(c)  # (left, top, right, bottom)
+    if bbox[1] < max_top:    max_top = bbox[1]     # Highest ascender
+    if bbox[3] > max_bottom: max_bottom = bbox[3]  # Lowest descender
+
+font_height = max_bottom - max_top
+
+# This calculates a fixed vertical offset so that the font's natural 
+# baseline sits perfectly relative to your 20px grid height.
+global_offset_y = (TARGET_HEIGHT - font_height) // 2 - max_top
+
+# --- 2. Render Glyphs with Fixed Baseline ---
+for codepoint in range(32, 127):
+    char = chr(codepoint)
+    
+    # Create the rigid grid canvas
+    img = Image.new("RGBA", (TARGET_WIDTH, TARGET_HEIGHT), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    
+    bbox = font.getbbox(char)
+    w = bbox[2] - bbox[0]
+    
+    if w == 0:  # Handle space character
+        w = 4
+        bbox = (0, 0, 4, 1)
+
+    # Horizontal: Center the character horizontally inside the 10px slot
+    offset_x = (TARGET_WIDTH - w) // 2 - bbox[0]
+    
+    # Vertical: Use the FIXED global baseline offset instead of local centering!
+    offset_y = global_offset_y
+    
+    # Draw character paths directly with the baked baseline adjustment
+    # draw.text((offset_x, offset_y), char, font=font, fill=(0, 0, 0, 255))
+    # fontmode="1" turns off anti-aliasing entirely in Pillow
+    draw.text((offset_x, offset_y), char, font=font, fill=(0, 0, 0, 255), fontmode="1")
+    
+    # Sanitize filenames
+    # if char == '/': filename = "char_slash.png"
+    # elif char == '*': filename = "char_asterisk.png"
+    # elif char == ' ': filename = "char_space.png"
+    # else: filename = f"char_{char}.png"
+    filename = f"{codepoint}.png"
+        
+    img.save(os.path.join(OUTPUT_DIR, filename))
+
+print(f"Done! Grid-compatible glyphs with baked baselines saved to '{OUTPUT_DIR}/'")
+```
+*Script is generated by Gemini, modified by me.*
+
+**2. Compile the picture files into bit-packed binary**
+An C++ program is used to perform this operation.
+```cpp
+int main() {
+
+	std::vector<tx::u8> buffer(1);
+
+	fs::path dir = "/home/TX_Jerry/temp/FalloutFontToImage/grid_glyphs_bit";
+	for (tx::u32 i = 32; i < 127; i++) {
+		tx::Image img(dir / (std::to_string(i) + ".png"));
+		if (!img.valid()) {
+			return 0;
+		}
+		tx::u32 bitCounter = 0;
+		std::span<tx::u8> imgspan = img.span();
+		for (int j = 0; j < 200; j++) {
+			if (bitCounter == 0) buffer.push_back(0);
+			tx::bit::setIndex(buffer.back(), bitCounter, imgspan[j * 4 + 3] < 140 ? tx::u8{ 0 } : tx::u8{ 1 });
+			bitCounter++;
+			if (bitCounter == 8) {
+				bitCounter = 0;
+			}
+		}
+	}
+
+	std::ofstream ofs(dir.parent_path() / "font", std::ios::binary);
+	ofs.write(reinterpret_cast<char*>(buffer.data()), buffer.size());
+
+	return 0;
+}
+```
+
+**3. Convert binary file into C array source file**
+CLI tool `xxd` is used to perform this operation.
+```bash
+xxd -i Font Font.h
+```
+
+### Personal Note
+Working directory: /home/TX_Jerry/temp/FalloutFontToImage
+Program directory: /home/TX_Jerry/temp/TXLibEnvProject
+
+# 2026-06-01
 
 ## 2026-05-28 23:48:20:<br>Category: Development Report<br>Topic: Input Pipeline of TerminalEngine
+*Input refer to the input from the user of the terminal - the input from the keyboard.*
+*All following class type identifier default refer to classes in namespace `tx::terminal`. aka `using namespace tx::terminal`.*
+
+### InputHandler
+The source of input of the Terminal Engine is the keyboard, specificly the `tx::esp::USBKeyboardInputHandler` from TXESP_Infrastructure.
+The `tx::esp::USBKeyboardInputHandler` has a callback based input system, and that's not ideal for complex logic, because the callback is happened in a system level loop, which staling might cause problem.
+Therefore, `InputHandler` is created. It provide `tx::esp::USBKeyboardInputHandler` a callback, which will push input event entries to a buffer provided by the `TerminalEngine`. It flattens the input stream, such that the Terminal Engine can perform complex logic in async while not staling the system driver.
+
+### `TerminalEngine::poll()`
+This is a public API called by the user - in the program sense - the higher layer of the TerminalEngine, which is the TXCompute main class.
+`poll()` is the main entry of the async processing pipeline. When this function is called, the caller should expect the possibility of thge input callback be called, and old references to the user input string to be invalidated (as they are stored in the `StringPool` of the TerminalEngine, which might delete some string entries to make free space for new spaces).
+If `poll()` is not called for a long period of time, an exception might happen in the InputHandler, because the input buffer of the Terminal Engine is filled up. To prevent this, a pair of `stale()` / `unstale()` API is provided in `InputHandler` to ignore the input from source.
+`poll()` copies the current input entries, and pop them from the buffer.
+After that, the lock is released, and the processing of input begins.
+`handleInputEvent_impl()` is called for every input event. Each input event is one key pressing, repeative pressing down, or releasing.
+
+### `TerminalEngine::handleInputEvent_impl()`
+Process one key input event. It could be either pressing, repeative pressing down, or releasing.
+If releasing, the event will be ignored.
+Otherwise, if the key is printable, it will go through modifier modifications beforehand (such as CapsLock and Shift), and then be pushed into `InputLine` as a `char`.
+If the key is non-printable, aka a function key, it will be processed in a `swtich`, determinding what action it is doing.
+In this stage, all operations are operations of `InputLine`, except `Enter`, which triggers `handleNewLine_impl()`.
+
+### InputLine
+Using a classic head-tail / front-back 2 buffer design, The InputLine class handles the storage of the current one line input.
+It separates the 2 buffer by the current cursor position. And entering an new character is push_back on the front buffer, pressing delete key is pop_back of the back buffer.
+It provides APIs for basic text operation such as moving the cursor and enter / deleting characters.
+InputLine also provide `output` function to write the current stored string into a `std::span<char>`.
+
+### `TerminalEngine::handleNewLine_impl`
+It extracts the input string and store it in the StringPool.
+Then then line buffer will be updated, potentialy triggering eviction: `lineBufferEvict_impl()`.
+Finally, the input callback will be called with the input string stored in StringPool.
+
+### Line buffer
+Stores the information of each line. Separated by `'\n'`.
+It is a CircularQueue of type `Line_impl`.
+
+**Line_impl**
+A line could be either an entry in the `StringPool` or a string that's outside of the TerminalEngine.
+There is only one u32 value in this struct. It could either be a `u32` id in the `StringPool`, or a `const char*` pointer since on 32 bit architecture a pointer is 4 bytes.
+The last bit is used as the boolean flag to identify whether it's an id *(1)* or a pointer *(0)*.
+
+**`lineBufferEvict_impl()`**
+The line buffer is obviously fixed sized and will obviously fill up. If line buffer is filled up, but non of StringPool's buffer is filled up, the eviction of line buffer will trigger.
+It will first pop the last element of the line buffer - of course.
+Then, it will try to communicate to StringPool, and delete the stored string that is corresponding to this deleting line entry, **if** this line entry is a id type.
+
+### The double lock between Line Buffer Eviction and StringPool Eviction
+Because LineBuffer and StringPool are both ring buffer design, they all have possibility to trigger an eviction.
+And the eviction need to sync with each other to prevent currupted data.
+Therefore in `TerminalEngine` there is a `m_state`, that contains 2 boolean flags, which are used for the 2 eviction to declare their state.
+If one eviction is happening, and it calles the other eviction, the other eviction will not trigger the eviction back again: the infinite recursion loop is prevented by an if check.
+
+# 2026-06-02
+
+## 2026-06-02 21:42:00:<br>Category: Development Report<br>Topic: `RingBuffer`
+I've been avoiding implementing a complete ring buffer data structure.. for whatevery reason.
+But now in the render pipeline, a standard ring buffer for the cache is essential. *Even though it's only 16 elements? Yeah im just making excuses to make data structures.*
+Therefore... my favourite time! Add new data structure! The library must grow!
+
+## 2026-06-02 21:42:53:<br>Category: Development Report<br>Topic: Output Pipeline of TerminalEngine
+Building on top of the already established foundation of lineBuffer, the output pipeline is really simple:
+- 2 APIs, one for dynamic output, and one for static output - perfectly handled by the `Line_impl` dual-type mechanism (guess why i designed it like that?)
+- for static output, it's simply constructing a `Line_impl` with the provided pointer and push into the line buffer
+- for dynamic output, it's just one more step then static: put the string in StringPool, and then push the ID into line buffer
+Simple!
+
+# 2026-06-04
+
+## 2026-06-04 21:35:13:<br>Category: Development Report<br>Topic: Render Pipeline of TerminalEngine
+The render pipeline of the TerminalEngine consists of 4 parts:
+- lhCache (line height cache) book keeping
+- render state and cursor logic
+- render events
+- drawing characters and lines
+
+### Terminology:
+| Word | Explaination |
+|-|-|
+Logical Line / Line_impl | the entry in lineBuffer, that represents one line without wrapping
+Screen Line / Render Line | the actual displaying line of text on the screen, consider wrapping
+
+### lhCache
+Front is top (of the screen); Back is bottom (of the screen)
+Stores the height (screen line count) of every logical line that are visible on the screen.
+It's index is linearly parallel to lineBuffer, meaning that the second entry in lhCache is corresponding to:
+```cpp
+m_lineBuffer[m_lhCacheState.topLine + 1]
+```
+lhCache represent the current display state, which serve for the scrolling logic.
+
+#### `m_lhCacheState`
+```cpp
+struct LhCacheState_impl {
+	/**
+	 * topLine is index of the first Line_impl that is visible on
+	 * the screen. It is also the index of Line_impl that the front() of
+	 * lhCache is according to.
+	 * topLineBegin is the index of the screen line that is the
+	 * actual first line on the screen. it is the index within the range
+	 * of the topLine object
+	 */
+	u32 topLine, topLineBegin, bottomLineEnd;
+	/**
+	 * the total amount of screen lines of all the logical lines that are
+	 * currently visible on screen, including the invisible screen lines of
+	 * the top and bottom logical line
+	 */
+	u32 screenLineCount;
+} m_lhCacheState;
+```
+
+It is necessary to update screenLineCount whenever a push or pop to the lhCache happened.
+
+### RenderState
+```cpp
+struct RenderState_impl {
+	/**
+	 * cursorPos always points to the end of left buffer (exclusively), and
+	 * points to the begin of right buffer (inclusively).
+	 * Speaking in plain english: cursorPos is the first character of right
+	 * buffer, which is also the character behind the last character of
+	 * left buffer
+	 */
+	Coord cursorPos;
+} m_renderState;
+```
+*Yeah an entire struct just to store one Coord. It's all for good practice trust.*
+
+Cursor will wrap to the begining if moved horizontally to the end.
+
+### Render events
+Event functions that have their name directly matching with the keyboard action event. *encapsulating inside encapsulation.*
+The `handleInputEvent_impl` will call these event functions, which will perform their logic and update the graphics.
+
+### Drawing
+Consist of simple grid -> pixel converter, line drawer and full redraw function
+
+# 2026-06-05
+
+## 2026-06-05 23:37:15:<br>Category: Development Report<br>Topic: The great pitfall of minor optimization
+I was being smart the whole time when I was making the rest of the Terminal Engine, but when it came to my favourite rendering pipeline, I made a big architectual mistake.
+And it is almost the worse architectual mistake I could ever make: **Minor Optimization**. Specificly, make an minor optimization driven architectual design.
+Just like you can clearly tell in the source code, abruptly from the rest of the terminal engine, the rendering pipeline, driven by `lhCache`, is unexpected fragile and complex.
+All of that complexity trade only for the performance of recomputing the height of each line every scrolling - which is just one integer division each.
+And by creating a cache for that, I officially invented ***State Machine Spaghetti***. There are way to many state variables to maintain, let alone the update complexity is probably already greater then purely SIMD the recomputation.
+And by the way, a cache takes more memory! So that also violated my initial design idea of memory aware.
+So yeah... that was a failure. But at least currently the logic seems to be working.
+Because shipping is more important then performance optimization, following "Make it work before make it fast" rule (*I probably already violated it for like twenty times*), I am not going to refactor it.
+As long as it works, it works.
+
+
 
 
 

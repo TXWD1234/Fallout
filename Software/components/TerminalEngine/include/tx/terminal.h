@@ -5,6 +5,7 @@
 #include "tx/data.h"
 #include "tx/esp.h"
 #include <algorithm>
+#include <bit>
 
 
 /**
@@ -62,6 +63,9 @@ public:
 		std::copy(str.begin(), str.end(), m_data.begin() + m_meta[index].offset);
 		return index;
 	}
+	u32 add(u32 size) {
+		return addObject_impl(size);
+	}
 
 	std::string_view get(u32 index) const {
 		// DevNote: add assert for index out of bound
@@ -70,8 +74,24 @@ public:
 		    m_data.begin() + meta.offset,
 		    m_data.begin() + meta.offset + meta.size);
 	}
+	std::span<char> getSpan(u32 index) {
+		Range_impl meta = m_meta[index];
+		return std::span<char>(
+		    m_data.begin() + meta.offset,
+		    m_data.begin() + meta.offset + meta.size);
+	}
 
 	u32 getSize(u32 index) const { return m_meta[index].size; }
+
+
+	// delete the oldest string object
+	// this function will still invoke the delete callback
+	u32 deleteOldest() {
+		return makeMetaVacancyAdjacent_impl();
+	}
+	u32 getOldestIndex() {
+		return m_metastate.backBegin;
+	}
 
 
 
@@ -450,19 +470,6 @@ private:
 	}
 };
 
-class LineBuffer {
-public:
-private:
-};
-
-/**
- * Link StringPool and TextBuffer together, for the overflow of StringPool
- * can take affect at TextBuffer
- */
-class LineBufferManager {
-};
-
-
 
 /**
  * @note
@@ -473,32 +480,39 @@ class LineBufferManager {
 class InputLine {
 public:
 	InputLine(tx::u32 maxBufferSize)
-	    : m_data(maxBufferSize) {}
+	    : m_data(maxBufferSize), m_maxLineSize(maxBufferSize) {}
 
 	// user operations
+	// @return the operations is valid (false for invalid)
 
-	void input(char val) {
+	bool input(char val) {
+		if (size() >= m_maxLineSize) return false;
 		m_data.left.push_back(val);
+		return true;
 	}
 	// backspace
-	void deleteFront() {
+	bool deleteFront() {
+		if (m_data.left.empty()) return false;
 		m_data.left.pop_back();
+		return true;
 	}
 	// delete
-	void deleteBack() {
+	bool deleteBack() {
+		if (m_data.right.empty()) return false;
 		m_data.right.pop_back();
+		return true;
 	}
-	void cursorMoveLeft(tx::u32 distance = 1) {
-		for (tx::u32 i = 0; i < distance && m_data.left.size(); i++) {
-			m_data.right.push_back(m_data.left.back());
-			m_data.left.pop_back();
-		}
+	bool cursorMoveLeft() {
+		if (m_data.left.empty()) return false;
+		m_data.right.push_back(m_data.left.back());
+		m_data.left.pop_back();
+		return true;
 	}
-	void cursorMoveRight(tx::u32 distance = 1) {
-		for (tx::u32 i = 0; i < distance && m_data.right.size(); i++) {
-			m_data.left.push_back(m_data.right.back());
-			m_data.right.pop_back();
-		}
+	bool cursorMoveRight() {
+		if (m_data.right.empty()) return false;
+		m_data.left.push_back(m_data.right.back());
+		m_data.right.pop_back();
+		return true;
 	}
 
 	// program operations
@@ -511,26 +525,41 @@ public:
 		                  std::copy(m_data.left.begin(), m_data.left.end(), buffer.begin()));
 		return true;
 	}
+	u32 size() {
+		return m_data.left.size() + m_data.right.size();
+	}
 
 	void clear() {
 		m_data.left.clear();
-		m_data.left.clear();
+		m_data.right.clear();
 	}
 
+	// return the character that is `offset` character left of the cursor
+	// 0 is the closest character to the cursor
+	// out of bound is UB
+	char leftChar(u32 offset) {
+		return m_data.left[m_data.left.size() - 1 - offset];
+	}
+	// return the character that is `offset` character right of the cursor
+	// 0 is the closest character to the cursor
+	// out of bound is UB
+	char rightChar(u32 offset) {
+		return m_data.right[m_data.right.size() - 1 - offset];
+	}
+
+	u32 leftSize() const { return m_data.left.size(); }
+	u32 rightSize() const { return m_data.right.size(); }
 
 private:
 	struct Data_impl {
 		Data_impl(tx::u32 size)
-		    : leftBuffer(size),
-		      rightBuffer(size),
-		      left(leftBuffer.span()),
-		      right(rightBuffer.span()) {}
+		    : left(size),
+		      right(size) {}
 
-		esp::Buffer<char> leftBuffer;
-		esp::Buffer<char> rightBuffer;
-		tx::GrowArrayOverlay<char> left;
-		tx::GrowArrayOverlay<char> right;
+		esp::Buffer_GrowArray<char> left;
+		esp::Buffer_GrowArray<char> right;
 	} m_data;
+	u32 m_maxLineSize;
 };
 
 
@@ -550,20 +579,222 @@ struct InputEvent {
  * esp::USBKeyboardInputHandler
  */
 class InputHandler {
+	/**
+	 * How the concurrenct data flow works:
+	 * The callback of esp::USBKeyboardInputHandler will push data into the buffer
+	 * It will only push, and if befroe it push full() returned true, it's
+	 * exception
+	 * 
+	 */
 public:
-	void init() { esp::USBKeyboardInputHandler::init(); }
-	void uninit() { esp::USBKeyboardInputHandler::uninit(); }
-	void setBuffer(CircularQueueOverlay<InputEvent> buffer) {
-		m_buffer = buffer;
+	static void init() {
+		if (m_inited) return;
+		m_inited = true;
+		esp::USBKeyboardInputHandler::init();
+		esp::USBKeyboardInputHandler::setCallback(keyboardCallback);
+	}
+	static void uninit() { esp::USBKeyboardInputHandler::uninit(); }
+	static void setBuffer(esp::TempCircularQueueOverlay<InputEvent>& buffer, std::mutex& lock) {
+		m_buffer = &buffer;
+		m_lock = &lock;
+	}
+
+	static void stale() {
+		m_running = false;
+	}
+	static void unstale() {
+		m_running = true;
+	}
+
+	static bool valid() { return m_valid && m_inited && m_buffer != nullptr; }
+
+private:
+	inline static esp::TempCircularQueueOverlay<InputEvent>* m_buffer = nullptr;
+	inline static std::mutex* m_lock = nullptr;
+	inline static bool m_valid = true;
+	inline static bool m_inited = false;
+
+	inline static std::atomic_bool m_running = true;
+
+	static void keyboardCallback(
+	    esp::USBKeyboardInputHandler::Key key,
+	    esp::USBKeyboardInputHandler::Action action,
+	    esp::USBKeyboardInputHandler::Mod mod) {
+		if (!m_running) return;
+		std::lock_guard<std::mutex> lock(*m_lock);
+		if (m_buffer->full()) {
+			m_valid = false;
+			return;
+		}
+		m_buffer->push(InputEvent{ key, mod, action });
+	}
+};
+
+
+
+
+
+
+
+
+
+
+struct Font {
+	u32 width;
+	u32 height;
+	std::span<u8> bitmapData;
+};
+inline esp::TextRenderer makeTextRenderer(Font font) {
+	return esp::TextRenderer{
+		font.width,
+		font.height,
+		font.bitmapData
+	};
+}
+
+
+class TerminalEngine {
+	/**
+	 * This Terminal Engine is highly optimized for memory usage, but not performance.
+	 * Both the update and render logic is designed with tight memory constraint in mind
+	 */
+public:
+	// type def
+
+	using InputCallback_t = std::function<void(std::string_view)>;
+
+private:
+	using Key = esp::USBKeyboardInputHandler::Key;
+	using Mod = esp::USBKeyboardInputHandler::Mod;
+	using Action = esp::USBKeyboardInputHandler::Action;
+
+public:
+	TerminalEngine(Font font, Coord textGridDimension)
+	    : m_inputBuffer(InputBufferSize),
+	      m_inputLocalBuffer(InputBufferSize),
+	      m_inputLine(InputLineBufferSize),
+	      m_stringPool(StringPoolCharSize, StringPoolStrSize),
+	      m_lineBuffer(LineBufferSize),
+	      m_rr(makeTextRenderer(font)),
+	      m_gridSpanDimension(textGridDimension),
+	      m_gridUnitDimension(m_screenDimension / textGridDimension),
+	      m_lhCache(
+	          std::bit_ceil(static_cast<u32>(textGridDimension.y))) {
+		init_impl();
+	}
+
+	// invoke async update
+	// return boolean: success
+	bool poll() {
+		if (!InputHandler::valid()) {
+			return false;
+		}
+
+		// pull data from input buffer
+		{
+			std::lock_guard<std::mutex> lock(m_inputLock);
+			// since there is lock, there will not be any input at this point
+			while (!m_inputBuffer.empty()) {
+				m_inputLocalBuffer.push_back(m_inputBuffer.front());
+				m_inputBuffer.pop();
+			}
+		}
+		for (const InputEvent& i : m_inputLocalBuffer) {
+			handleInputEvent_impl(i);
+		}
+		m_inputLocalBuffer.clear();
+		return true;
+	}
+
+	// print a dynamic string
+	// the value of input `str` will be copied into TemrinalEngine's internal
+	// string buffer, and the source of `str` can be safely overwritten or
+	// freed after
+	void print(std::string_view str) {
+		// add to string pool
+		u32 id = m_stringPool.add(str);
+
+		// add to line buffer
+		lineBufferPush_impl(Line_impl{ id });
+		renderEvent_output();
+	}
+	// print a static string preset
+	// the input `str` have to guarantee to not be freed
+	// UB if the memory `str` points to is invalidated
+	void printStatic(const char* str) {
+		// add to line buffer
+		lineBufferPush_impl(Line_impl{ str });
+		renderEvent_output();
+	}
+	// note: use `const char*` to indicate that this have to be a C string with
+	// '\0' indicator at the end
+
+	// init data setter
+
+	// callback when an complete line is entered
+	void setInputCallback(InputCallback_t cb) {
+		m_inputCb = cb;
+		m_inputCbInited = true;
+	}
+	// callback when an complete line is entered
+	template <std::invocable<std::string_view> Func>
+	void setInputCallback(Func&& f) {
+		m_inputCb = std::forward<Func>(f);
+		m_inputCbInited = true;
 	}
 
 private:
+	inline static constexpr const u32 InputBufferSize = 16;
+	inline static constexpr const u32 InputLineBufferSize = 128;
+	inline static constexpr const u32 StringPoolCharSize = 65536;
+	inline static constexpr const u32 StringPoolStrSize = 512;
+	inline static constexpr const u32 LineBufferSize = 1024;
+
+	/**
+	 * Memory Usage
+	 * 
+	 * Each line:
+	 * - Absolute length max: 128
+	 * 
+	 * Terminal Line Buffer:
+	 * * each entry is an user input and a program output
+	 * - max entry size: 1024
+	 * 
+	 * StringPool:
+	 * - String Capacity: 1024
+	 * - Character Capacity: 512 * 128 = 65536 (64Kb)
+	 * 
+	 * Total Memory Usage
+	 * - String Pool: 65536 + 512 * 8 = 69632
+	 * - Line Buffer: 1024 * (8 + 4 + 4) = 16384
+	 * - Input Line: 128 * 2 = 256
+	 * - Input Buffer: 16 * 12 = 192
+	 * 
+	 * Total: 86464b (84kb)
+	 * 
+	 */
+
+private:
+	// ==========================================
+	// **************** Callback ****************
+	// ==========================================
+
+	InputCallback_t m_inputCb;
+	bool m_inputCbInited = false;
+
+private:
+	// =========================================================
+	// **************** source data (init data) ****************
+	// =========================================================
+
 	// clang-format off
 	inline static constexpr const i8 keyShiftTable[] = {
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
-		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
+		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
+		' ', /*   */
+		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		'"', /* ' */
 		i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		'<', /* , */
@@ -587,7 +818,7 @@ private:
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
-		i8{-1}, i8{-1}, i8{-1},
+		i8{-1}, i8{-1}, i8{-1}, i8{-1}, i8{-1},
 		'{', /* [ */
 		'|', /* \ */
 		'}', /* ] */
@@ -623,75 +854,738 @@ private:
 	// clang-format on
 
 private:
-	CircularQueueOverlay<InputEvent> m_buffer;
-};
+	// ==============================================
+	// **************** Impl Structs ****************
+	// ==============================================
 
-
-
-
-
-
-
-
-
-
-struct Font {
-	u32 width;
-	u32 height;
-	std::span<u8> bitmapData;
-};
-inline esp::TextRenderer makeTextRenderer(Font font) {
-	return esp::TextRenderer{
-		font.width,
-		font.height,
-		font.bitmapData
-	};
-}
-
-
-
-/**
- * @note
- * this class will allocate memory:
- * - TextRenderer: double render buffer, each `width * height * 2` (u16)
- * - String buffer:
- */
-class TerminalEngine {
 	/**
-	 * This Terminal Engine is highly optimized for memory usage, but not performance.
-	 * Both the update and render logic is designed with tight memory constraint in mind
+	 * a line could be either an entry in the string pool
+	 * or a string that's outside of the TerminalEngine
+	 * There is only one u32 value in this struct. it could either be a u32
+	 * id in the StringPool, or a const char* pointer since on 32 bit
+	 * architecture a pointer is 4 bytes.
+	 * the last bit is used as the boolean flag to identify whether it's an
+	 * id (1) or a pointer (0)
+	 * 
+	 * Specificly for an id, there is another boolean flag: isUserInput
+	 * (does not exist for pointer because user input could never be a pointer)
+	 * this boolean flag is the second least significant digit, at the left of
+	 * the type flag.
 	 */
-public:
-	// type def
+	struct Line_impl {
+		u32 m_value = 0;
+		Line_impl() {}
+		Line_impl(u32 val) { set_impl(val); }
+		Line_impl(const char* val) { set_impl(val); }
 
-	using InputCallback_t = std::function<void(std::string_view)>;
+		bool isPointer() const { return bit::contains_none(m_value, u32{ 0x1 }); }
+		u32 id() const { return m_value >> 2; }
+		const char* pointer() const {
+			return reinterpret_cast<const char*>(m_value);
+		}
+		Line_impl& operator=(u32 val) {
+			set_impl(val);
+			return *this;
+		}
+		Line_impl& operator=(const char* val) {
+			set_impl(val);
+			return *this;
+		}
 
-public:
-	TerminalEngine(Font font) : m_rr(makeTextRenderer(font)) {}
+		Line_impl userInput() {
+			return bit::setTrue_copy(m_value, u32{ 0b10 });
+		}
+		bool isUserInput() {
+			return bit::contains_all(m_value, u32{ 0b10 });
+		}
 
-	// init data setter
-
-	void setInputCallback(InputCallback_t cb) {
-		m_inputCb = cb;
-		m_inputCbInited = true;
-	}
-	template <std::invocable<std::string_view> Func>
-	void setInputCallback(Func&& f) {
-		m_inputCb = std::forward<Func>(f);
-		m_inputCbInited = true;
-	}
+	private:
+		void set_impl(u32 val) {
+			m_value = bit::setTrue_copy(val << 2, u32{ 0x1 });
+		}
+		void set_impl(const char* val) {
+			m_value = bit::setFalse_copy(reinterpret_cast<u32>(val), u32{ 0x1 });
+		}
+	};
 
 private:
-	// call back and source data (init data)
+	// ============================================
+	// **************** Core Logic ****************
+	// ============================================
 
-	InputCallback_t m_inputCb;
-	bool m_inputCbInited = false;
+	// input
+	esp::Buffer_CircularQueue<InputEvent> m_inputBuffer;
+	std::mutex m_inputLock;
+	esp::Buffer_GrowArray<InputEvent> m_inputLocalBuffer;
 
-	std::span<std::string_view> m_stringPresets;
+	InputLine m_inputLine;
+
+	// storage buffers
+	StringPool m_stringPool;
+	esp::Buffer_RingBuffer<Line_impl> m_lineBuffer;
+
+	void init_impl() {
+		InputHandler::init();
+		InputHandler::setBuffer(m_inputBuffer, m_inputLock);
+
+		m_stringPool.setDeleteCallback([&](u32 id) {
+			this->handleDeleteEvent_impl(id);
+		});
+	}
+
+	struct State_impl {
+		bool isLineBufferEvicting = false;
+		bool isStringPoolEvicting = false;
+	} m_state;
+
+	void handleInputEvent_impl(const InputEvent& event) {
+		if (event.key == Key::Invalid) return;
+
+		if (event.action == Action::Release) {
+			return;
+		};
+
+		if (isPrintableKey(event.key) && bit::contains_none(event.mod, Mod::Control)) {
+			char c = static_cast<char>(enumval(event.key));
+			if (bit::contains_any(event.mod, Mod::Shift))
+				c = keyShiftTable[static_cast<int>(c)];
+			if (bit::contains_any(event.mod, Mod::CapsLock))
+				c = reverseCase(c);
+
+			m_inputLine.input(c);
+			renderEvent_input();
+			return;
+		}
+		// functional keys
+		switch (event.key) {
+		case Key::Enter:
+			handleNewLine_impl();
+			renderEvent_enter();
+			break;
+		case Key::Backspace:
+			if (m_inputLine.deleteFront())
+				renderEvent_backspace();
+			break;
+		case Key::Delete:
+			if (m_inputLine.deleteBack())
+				renderEvent_delete();
+			break;
+		case Key::Left:
+			if (m_inputLine.cursorMoveLeft())
+				renderEvent_moveLeft();
+			break;
+		case Key::Right:
+			if (m_inputLine.cursorMoveRight())
+				renderEvent_moveRight();
+			break;
+		default:
+			break;
+		}
+	}
+
+	void handleNewLine_impl() {
+		// extract input string
+		u32 id = m_stringPool.add(m_inputLine.size());
+		m_inputLine.output(m_stringPool.getSpan(id));
+		m_inputLine.clear();
+
+		// update line buffer
+		lineBufferPush_impl(Line_impl{ id }.userInput());
+
+		// invoke user input callback
+		if (m_inputCbInited)
+			m_inputCb(m_stringPool.get(id));
+	}
+	void lineBufferPush_impl(Line_impl line) {
+		// push line buffer
+		if (m_lineBuffer.full()) lineBufferEvict_impl();
+		m_lineBuffer.push_back(line);
+
+		// update lhCache
+		if (m_lhCacheState.bottomLineEnd == 0) {
+			if (m_lhCache.full()) lhCache_pop_front();
+			lhCache_push_back(line);
+		}
+	}
+
+	// @return the type of line is evicted: pointer (0 / preset) or id (1 / literal)
+	u8 lineBufferEvict_impl() {
+		Line_impl line = m_lineBuffer.front();
+		m_lineBuffer.pop_front();
+		m_lhCacheState.topLine--; // since topLine is index in
+		// lineBuffer, it need to be updated to match it's original address
+
+		if (line.isPointer()) return 0;
+		if (m_state.isStringPoolEvicting) return 1;
+
+		// not a pointer - it's an id in StringPool
+		m_state.isLineBufferEvicting = true;
+		u32 id = line.id();
+		if (m_stringPool.getOldestIndex() != id) {
+			// DevNote: this will be a problem
+			// either stringPool delete callback didn't delete properly, or
+			// data curruption....
+			return InvalidU8;
+		}
+		m_stringPool.deleteOldest();
+		m_state.isLineBufferEvicting = false;
+		return 1;
+	}
+
+	void handleDeleteEvent_impl(u32 id) {
+		m_state.isStringPoolEvicting = true;
+		if (!m_state.isLineBufferEvicting) {
+			// evict line buffer
+			while (lineBufferEvict_impl() == 0 &&
+			       !m_lineBuffer.empty()) {}
+		}
+		m_state.isStringPoolEvicting = false;
+	}
+
 
 private:
-	// runtime data
+	// ========================================
+	// **************** Render ****************
+	// ========================================
+
+	/**
+	 * Terminology:
+	 * - Logical Line / Line_impl: the entry in lineBuffer, that
+	 *   represents one line without wrapping
+	 * - Screen Line / Render Line: the actual displaying line of text on the
+	 *   screen, consider wrapping
+	 */
 
 	esp::TextRenderer m_rr;
+	Coord m_gridSpanDimension; // the grid dimension of the entire screen
+	Coord m_gridUnitDimension; // the pixel dimension of each grid
+
+	inline static constexpr const Coord m_screenDimension{ 480, 320 };
+
+	// ################ line height cache ################
+	/**
+	 * front is top, back is bottom (of the screen)
+	 * Stores the height (screen line count) of every logical line that are
+	 * visible on the screen
+	 * It's index is linearly parallel to lineBuffer, meaning that the second
+	 * entry in lhCache is corresponding to:
+	 * m_lineBuffer[m_lhCacheState.topLine + 1]
+	 */
+	esp::Buffer_RingBuffer<u32> m_lhCache;
+
+	struct LhCacheState_impl {
+		/**
+		 * topLine is index of the first Line_impl that is visible on
+		 * the screen. It is also the index of Line_impl that the front() of
+		 * lhCache is according to.
+		 * topLineBegin is the index of the screen line that is the
+		 * actual first line on the screen. it is the index within the range
+		 * of the topLine object
+		 * bottomLineEnd is the index of the screen line that is the next line
+		 * of the actual last line on the screen. it is the index within the
+		 * range of the last logical line in lhCache. 0 is invalid state to this
+		 * variable, since if it's 0 nothing from the last logical line is
+		 * visible, then by correct logic that logical line shouldn't exist (it
+		 * will just be the bottomLineEnd be the height of the last logical
+		 * line). therefore when bottomLineEnd is 0, the only possible state is
+		 * that there had never been scrolled.
+		 * 
+		 * Abstraction:
+		 * bottomLineEnd is the "end" index, therefore it could also be
+		 * considered as the visible size of the last logical line.
+		 * 
+		 */
+		u32 topLine = 0, topLineBegin = 0, bottomLineEnd = 0;
+		/**
+		 * the total amount of screen lines of all the logical lines that are
+		 * currently visible on screen, including the invisible screen lines of
+		 * the top and bottom logical line
+		 */
+		u32 screenLineCount = 0;
+	} m_lhCacheState;
+
+
+	u32 findLineHeight_impl(Line_impl line) {
+		std::string_view lineStr = getLineStr(line);
+		return divideCeil(static_cast<u32>(lineStr.size()), m_gridSpanDimension.x);
+	}
+	u32 findLineHeight_impl(u32 lineIndex) {
+		return findLineHeight_impl(m_lineBuffer[lineIndex]);
+	}
+
+	void lhCache_push_back(u32 height) {
+		m_lhCache.push_back(height);
+		m_lhCacheState.screenLineCount += m_lhCache.back();
+	}
+	void lhCache_pop_back() {
+		m_lhCacheState.screenLineCount -= m_lhCache.back();
+		m_lhCache.pop_back();
+	}
+	void lhCache_push_front(u32 height) {
+		m_lhCache.push_front(height);
+		m_lhCacheState.screenLineCount += m_lhCache.front();
+	}
+	void lhCache_pop_front() {
+		m_lhCacheState.screenLineCount -= m_lhCache.front();
+		m_lhCache.pop_front();
+	}
+
+	void lhCache_push_back(Line_impl line) {
+		lhCache_push_back(findLineHeight_impl(line));
+	}
+	void lhCache_push_front(Line_impl line) {
+		lhCache_push_front(findLineHeight_impl(line));
+	}
+
+
+	// core rendering
+
+	/**
+	 * The dimension of the screen in pixel is always 480*320
+	 * The origin is at top left.
+	 */
+
+	struct RenderState_impl {
+		/**
+		 * cursorPos always points to the end of left buffer (exclusively), and
+		 * points to the begin of right buffer (inclusively).
+		 * Speaking in plain english: cursorPos is the first character of right
+		 * buffer, which is also the character behind the last character of
+		 * left buffer
+		 */
+		Coord cursorPos;
+	} m_renderState;
+
+	// ---------------------------------------------
+	// ++++++++++++++++ RenderEvent ++++++++++++++++
+	// ---------------------------------------------
+	/**
+	 * The render events related with the inputLine will be reading state from
+	 * the inputLine
+	 * Every event is an action that user can perform, and will be directly
+	 * called from the event handler - encapsulation
+	 */
+
+	void renderEvent_input() {
+		// if an input just happened, the inputed character must be the first
+		// character to the left of the cursor in the inputLine
+		renderImpl_drawChar(m_renderState.cursorPos,
+		                    m_inputLine.leftChar(0));
+		renderEvent_moveRight();
+		renderImpl_redrawBack();
+	}
+	void renderEvent_delete() {
+		renderImpl_redrawBack();
+	}
+	void renderEvent_backspace() {
+		renderEvent_moveLeft();
+		renderImpl_redrawBack();
+	}
+	void renderEvent_moveLeft() {
+		renderImpl_cursorMoveLeft(m_renderState.cursorPos);
+		renderImpl_scrollToCursor();
+	}
+	void renderEvent_moveRight() {
+		renderImpl_cursorMoveRight(m_renderState.cursorPos);
+		renderImpl_scrollToCursor();
+	}
+
+	void renderEvent_enter() {
+		renderImpl_scrollToEnd();
+		renderImpl_fullRedraw();
+	}
+
+	void renderEvent_output() {
+		renderImpl_scrollToEnd();
+		renderImpl_fullRedraw();
+	}
+
+	// ################ triggering redraw ################
+	// offset is unit of actual screen line / y position
+	// any invalid offset input is an hard UB
+
+	/**
+	 * There are 2 things to consider in this function:
+	 * 1. Call `renderImpl_scrollDown / _scrollUp`, which update lhCache,
+	 *    providen context for the actual rendering
+	 * 2. Trigger redraw. Use the updated lhCache to draw the new text grid
+	 */
+
+	void renderEvent_scrollDown(u32 offset) {
+		m_renderState.cursorPos.y -= offset;
+		renderImpl_scrollDown(offset);
+		renderImpl_fullRedraw();
+	}
+	void renderEvent_scrollUp(u32 offset) {
+		m_renderState.cursorPos.y += offset;
+		renderImpl_scrollUp(offset);
+		renderImpl_fullRedraw();
+	}
+
+	// --------------------------------------------
+	// ++++++++++++++++ RenderImpl ++++++++++++++++
+	// --------------------------------------------
+
+	// ################ Logic ################
+
+	void renderImpl_cursorMoveLeft(Coord& pos) {
+		pos.x--;
+		if (pos.x < 0) {
+			pos.y--;
+			pos.x = m_gridSpanDimension.x - 1;
+		}
+	}
+	void renderImpl_cursorMoveRight(Coord& pos) {
+		pos.x++;
+		if (pos.x >= m_gridSpanDimension.x) {
+			pos.y++;
+			pos.x = 0;
+		}
+	}
+
+	void renderImpl_scrollToCursor() {
+		if (m_renderState.cursorPos.y >= m_gridSpanDimension.y)
+			renderEvent_scrollDown(
+			    m_renderState.cursorPos.y - m_gridSpanDimension.y + 1);
+		else if (m_renderState.cursorPos.y < 0)
+			renderEvent_scrollUp(0 - m_renderState.cursorPos.y);
+	}
+
+	// updates only lhCache
+	void renderImpl_scrollDown(u32 offset) {
+		/**
+		 * There are 2 things to consider in this function:
+		 * 1. The front of lhCache. They are the logical lines that will become
+		 *    invisible because of this scroll
+		 * 2. The back of lhCache. They are the logical lines that will become
+		 *    visible because of this scroll
+		 */
+
+		/**
+		 * There are 3 cases to this function:
+		 * 1. Simple scroll:   scroll offset is within the height of the first
+		 *                     logical line, no change to the front
+		 * 2. Complex scroll:  scroll offset is within the screen, at least
+		 *                     one logical line entry will last
+		 * 3. Complete scroll: scroll offset is greater then the screen,
+		 *                     everything in lhCache is reset (cache miss ig)
+		 */
+
+		// orientation: push_back, pop_front
+
+		// is already at the end
+		if (m_lhCacheState.screenLineCount < m_gridSpanDimension.y ||
+		    (m_lhCacheState.topLine + m_lhCache.size() == m_lineBuffer.size() &&
+		     m_lhCacheState.bottomLineEnd == m_lhCache.back())) return;
+
+		// ---------------- Front ----------------
+		// delete logical line entries that will become invisible from lhCache
+		u32 remainedOffset = offset;
+
+		// complete scroll
+		if (offset >=
+		    m_lhCacheState.screenLineCount - m_lhCacheState.topLineBegin) {
+			u32 lineIndex = m_lhCacheState.topLine + m_lhCache.size();
+			u32 lineHeight = findLineHeight_impl(lineIndex);
+
+			// march line buffer to find new begin
+			while (remainedOffset >= lineHeight) {
+				remainedOffset -= lineHeight;
+				lineIndex++;
+				lineHeight = findLineHeight_impl(lineIndex);
+				// DevNote: potential throw: lineIndex out of range
+				// possible reason: `offset` is too big
+			}
+
+			m_lhCache.clear();
+			m_lhCacheState.screenLineCount = 0;
+			m_lhCacheState.topLine = lineIndex;
+			// the first logical line
+			lhCache_push_back(m_lineBuffer[lineIndex]);
+
+			m_lhCacheState.topLineBegin = remainedOffset;
+		} else {
+			// incomplete scroll
+			renderImpl_deleteFront_impl(remainedOffset);
+		}
+
+		// ---------------- Back ----------------
+		// push new logical lines that became visible (determind bottomLineEnd)
+		i32 remainedLineCapacity =
+		    m_gridSpanDimension.y -
+		    (m_lhCacheState.screenLineCount -
+		     m_lhCacheState.topLineBegin);
+		// start with the next logical line of the last entry in lhCache
+		u32 lineIndex = m_lhCacheState.topLine + m_lhCache.size();
+		u32 lineHeight = findLineHeight_impl(lineIndex);
+
+		while (true) {
+			remainedLineCapacity -= lineHeight;
+			lhCache_push_back(lineHeight);
+			if (remainedLineCapacity <= 0) break;
+			lineIndex++; // iterate to next line
+			if (lineIndex >= m_lineBuffer.size()) {
+				/**
+				 * this should never happen. because this means the buffer had
+				 * ran out to fill the empty space. which then means scrolling
+				 * shouldn't even happen (the total line did not filled the
+				 * screen yet), or invalid offset was entered
+				 */
+				// DevNote: Error
+				return;
+			}
+			lineHeight = findLineHeight_impl(lineIndex);
+		}
+
+		// remainedLineCapacity must be negative or 0, adding it is equivalant
+		// to subtracting or no-op; adding std::min just in case
+		m_lhCacheState.bottomLineEnd = std::min(
+		    lineHeight + remainedLineCapacity, lineHeight);
+	}
+	// updates only lhCache
+	// mirror of renderImpl_scrollDown
+	void renderImpl_scrollUp(u32 offset) {
+		// orientation: push_front, pop_back
+
+		// is already at the top
+		if (m_lhCacheState.screenLineCount < m_gridSpanDimension.y ||
+		    m_lhCacheState.topLine == 0 &&
+		        m_lhCacheState.topLineBegin == 0) return;
+
+		// compatibility variables to match the scroll logic
+
+		//u32 bottomLine = m_lhCacheState.topLine + m_lhCache.size() - 1; // inclusive
+
+		// ---------------- Back ----------------
+		// delete logical line entries that will become invisible from lhCache
+		u32 remainedOffset = offset;
+
+		// complete scroll
+		if (offset >=
+		    m_lhCacheState.screenLineCount - m_lhCache.back() +
+		        m_lhCacheState.bottomLineEnd) {
+			u32 lineIndex = m_lhCacheState.topLine - 1;
+			u32 lineHeight = findLineHeight_impl(lineIndex);
+
+			// march line buffer to find new bottom
+			while (remainedOffset >= lineHeight) {
+				remainedOffset -= lineHeight;
+				lineIndex--;
+				lineHeight = findLineHeight_impl(lineIndex);
+				// DevNote: potential throw: lineIndex out of range
+				// possible reason: `offset` is too big
+			}
+
+			m_lhCache.clear();
+			m_lhCacheState.screenLineCount = 0;
+			//bottomLine = lineIndex;
+			// the first logical line
+			m_lhCacheState.topLine = lineIndex; // logically it should bottom
+			// line here, but since there is only one line it's the same
+			lhCache_push_front(lineHeight);
+
+			m_lhCacheState.bottomLineEnd = lineHeight - remainedOffset;
+		} else {
+			// incomplete scroll
+			u32 lineHeight = m_lhCache.back();
+			if (remainedOffset >= lineHeight) {
+				// complex scroll
+				// march lhCache to find new begin
+				do {
+					remainedOffset -= lineHeight;
+					lhCache_pop_back();
+					lineHeight = m_lhCache.back();
+					//bottomLine--;
+				} while (remainedOffset >= lineHeight);
+				m_lhCacheState.bottomLineEnd = lineHeight - remainedOffset;
+			} else {
+				// simple scroll
+				m_lhCacheState.bottomLineEnd -= offset;
+			}
+		}
+
+		// ---------------- Front ----------------
+		// push new logical lines that became visible (determind topLine and
+		// topLineBegin)
+		i32 remainedLineCapacity =
+		    m_gridSpanDimension.y -
+		    (m_lhCacheState.screenLineCount -
+		     (m_lhCache.back() - m_lhCacheState.bottomLineEnd));
+		// start with the previous logical line of the first entry in lhCache
+		u32 lineIndex = m_lhCacheState.topLine - 1;
+		u32 lineHeight = findLineHeight_impl(lineIndex);
+
+		while (true) {
+			remainedLineCapacity -= lineHeight;
+			lhCache_push_front(lineHeight);
+			if (remainedLineCapacity <= 0) break;
+			if (lineIndex == 0) {
+				/**
+				 * this should never happen. because this means the buffer had
+				 * ran out to fill the empty space. which then means scrolling
+				 * shouldn't even happen (the total line did not filled the
+				 * screen yet), or invalid offset was entered
+				 */
+				// DevNote: Error
+				return;
+			}
+			lineIndex--; // iterate to next line
+			lineHeight = findLineHeight_impl(lineIndex);
+		}
+
+		// remainedLineCapacity
+		m_lhCacheState.topLineBegin = -remainedLineCapacity;
+		m_lhCacheState.topLine = lineIndex;
+	}
+	void renderImpl_scrollToEnd() {
+		if (m_lhCacheState.screenLineCount < m_gridSpanDimension.y ||
+		    (m_lhCacheState.topLine + m_lhCache.size() == m_lineBuffer.size() &&
+		     m_lhCacheState.bottomLineEnd == m_lhCache.back())) return;
+
+		u32 bottomLine = m_lhCacheState.topLine + m_lhCache.size() - 1;
+		renderImpl_deleteFront_impl(
+		    m_lhCache.back() - m_lhCacheState.bottomLineEnd);
+
+		// march to find bottom line
+		while (bottomLine != m_lineBuffer.size() - 1) {
+			bottomLine++;
+			u32 lineHeight = findLineHeight_impl(bottomLine);
+			renderImpl_deleteFront_impl(lineHeight);
+			lhCache_push_back(lineHeight);
+		}
+
+		m_lhCacheState.bottomLineEnd = m_lhCache.back();
+	}
+	void renderImpl_deleteFront_impl(u32 offset) {
+		u32 lineHeight = m_lhCache.front();
+		if (offset >= lineHeight) {
+			// complex scroll
+			// march lhCache to find new begin
+			do {
+				offset -= lineHeight;
+				lhCache_pop_front();
+				lineHeight = m_lhCache.front();
+				m_lhCacheState.topLine++;
+			} while (offset >= lineHeight);
+			m_lhCacheState.topLineBegin = offset;
+		} else {
+			// simple scroll
+			m_lhCacheState.topLineBegin += offset;
+		}
+	}
+
+
+	// ################ Drawing ################
+
+	// encapulates the converstion between grid coord and pixel coord
+	void renderImpl_drawChar(Coord pos, char c) {
+		m_rr.draw(pos * m_gridUnitDimension, c);
+	}
+
+	// redraw based on current cursorPos and inputLine buffer state
+	void renderImpl_redrawBack() {
+		Coord cursor = m_renderState.cursorPos;
+		for (u32 i = 0; i < m_inputLine.rightSize(); i++) {
+			renderImpl_drawChar(cursor, m_inputLine.rightChar(i));
+			renderImpl_cursorMoveRight(cursor);
+		}
+	}
+
+	void renderImpl_drawLine(u32 lineIndex, u32 yPos) {
+		renderImpl_drawLinePartial(lineIndex, yPos, 0, u32{ 0xFFFF });
+	}
+	// @param lineBegin the screen line index of the targeting line, that is
+	// the begin line to render in the targeting line (start at)
+	void renderImpl_drawLinePartialBegin(u32 lineIndex, u32 yPos, u32 lineBegin) {
+		renderImpl_drawLinePartial(lineIndex, yPos, lineBegin, u32{ 0xFFFF });
+	}
+	// @param lineEnd the screen line index of the targeting line, that is
+	// the end line to render in the targeting line (end with)
+	void renderImpl_drawLinePartialEnd(u32 lineIndex, u32 yPos, u32 lineEnd) {
+		renderImpl_drawLinePartial(lineIndex, yPos, 0, lineEnd);
+	}
+	// @param lineBegin the screen line index of the targeting line, that is
+	// the begin line to render in the targeting line (start at)
+	// @param lineEnd the screen line index of the targeting line, that is
+	// the end line to render in the targeting line (end with)
+	void renderImpl_drawLinePartial(u32 lineIndex, u32 yPos, u32 lineBegin, u32 lineEnd) {
+		Coord cursor{ 0, static_cast<int>(yPos) };
+		std::string_view str = getLineStr(lineIndex);
+		u32 beginIndex = lineBegin * m_gridSpanDimension.x;
+		u32 endIndex = std::min(static_cast<u32>(str.size()),
+		                        lineEnd * m_gridSpanDimension.x);
+		for (u32 i = beginIndex; i < endIndex; i++) {
+			renderImpl_drawChar(cursor, str[i]);
+			renderImpl_cursorMoveRight(cursor);
+		}
+	}
+	/**
+	 * Redraw the entire screen according to the lhCache
+	 */
+	void renderImpl_fullRedraw() {
+		if (m_lhCache.size() == 1) {
+			renderImpl_drawLinePartial(
+			    m_lhCacheState.topLine,
+			    0,
+			    m_lhCacheState.topLineBegin,
+			    m_lhCacheState.bottomLineEnd);
+			return;
+		}
+
+		u32 screenLineIndex = 0;
+		u32 logicalLineIndex = m_lhCacheState.topLine;
+
+		renderImpl_drawLinePartialBegin(
+		    logicalLineIndex,
+		    screenLineIndex,
+		    m_lhCacheState.topLineBegin);
+		logicalLineIndex++;
+		screenLineIndex += m_lhCache.front() - m_lhCacheState.topLineBegin;
+		for (u32 i = 1; i < m_lhCache.size() - 1; i++) {
+			renderImpl_drawLine(
+			    logicalLineIndex,
+			    screenLineIndex);
+			logicalLineIndex++;
+			screenLineIndex += m_lhCache[i];
+		}
+		renderImpl_drawLinePartialEnd(
+		    logicalLineIndex,
+		    screenLineIndex,
+		    m_lhCacheState.bottomLineEnd);
+	}
+
+private:
+	// =========================================
+	// **************** Helpers ****************
+	// =========================================
+
+	static bool isPrintableKey(Key key) {
+		return enumval(key) <= 122;
+	}
+	static char reverseCase(char c) {
+		if (!std::isalpha(c)) return c;
+		return c <= 90 ? c + 32 : c - 32;
+	}
+
+	static u32 divideCeil(u32 a, u32 b) {
+		return (a + b - 1) / b;
+	}
+
+	std::string_view getLineStr(u32 index) {
+		return getLineStr(m_lineBuffer[index]);
+	}
+	std::string_view getLineStr(Line_impl line) {
+		if (line.isPointer()) {
+			return std::string_view(line.pointer());
+		} else {
+			return m_stringPool.get(line.id());
+		}
+	}
 };
 } // namespace tx::terminal
+
+/**
+ * Things to add:
+ * - output session (when user is inputing, all output is ignored; when program
+ *   is outputing, all user input is ignored (`InputHandler::stale()`))
+ */

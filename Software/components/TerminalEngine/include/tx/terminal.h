@@ -25,6 +25,7 @@ namespace tx::terminal {
  *
  * The terminal engine is designed under the KISS rule:
  * Keep it Simple, Stupid
+ * *It's actually not. —— TX_Jerry*
  */
 
 
@@ -729,7 +730,9 @@ public:
 	// note: use `const char*` to indicate that this have to be a C string with
 	// '\0' indicator at the end
 
-	// init data setter
+
+
+	// user data setter
 
 	// callback when an complete line is entered
 	void setInputCallback(InputCallback_t cb) {
@@ -741,6 +744,11 @@ public:
 	void setInputCallback(Func&& f) {
 		m_inputCb = std::forward<Func>(f);
 		m_inputCbInited = true;
+	}
+
+	void setUserInputHeader(std::string_view str) {
+		m_userInputHeaderStr = str;
+		m_userInputHeaderInited = true;
 	}
 
 private:
@@ -775,12 +783,15 @@ private:
 	 */
 
 private:
-	// ==========================================
-	// **************** Callback ****************
-	// ==========================================
+	// ===========================================
+	// **************** User Data ****************
+	// ===========================================
 
 	InputCallback_t m_inputCb;
 	bool m_inputCbInited = false;
+
+	std::string_view m_userInputHeaderStr;
+	bool m_userInputHeaderInited = false;
 
 private:
 	// =========================================================
@@ -1349,8 +1360,8 @@ private:
 
 		// is already at the top
 		if (m_lhCacheState.screenLineCount < m_gridSpanDimension.y ||
-		    m_lhCacheState.topLine == 0 &&
-		        m_lhCacheState.topLineBegin == 0) return;
+		    (m_lhCacheState.topLine == 0 &&
+		     m_lhCacheState.topLineBegin == 0)) return;
 
 		// compatibility variables to match the scroll logic
 
@@ -1492,30 +1503,47 @@ private:
 	}
 
 	void renderImpl_drawLine(u32 lineIndex, u32 yPos) {
-		renderImpl_drawLinePartial(lineIndex, yPos, 0, u32{ 0xFFFF });
+		Coord pos{ 0, static_cast<int>(yPos) };
+		if (m_lineBuffer[lineIndex].isUserInput()) {
+			renderImpl_drawStr(m_userInputHeaderStr, pos);
+			pos.x = m_userInputHeaderStr.size();
+		}
+		renderImpl_drawLinePartial(lineIndex, yPos);
 	}
 	// @param lineBegin the screen line index of the targeting line, that is
 	// the begin line to render in the targeting line (start at)
 	void renderImpl_drawLinePartialBegin(u32 lineIndex, u32 yPos, u32 lineBegin) {
-		renderImpl_drawLinePartial(lineIndex, yPos, lineBegin, u32{ 0xFFFF });
+		renderImpl_drawLinePartial(lineIndex,
+		                           Coord{ 0, static_cast<i32>(yPos) },
+		                           lineBegin);
 	}
 	// @param lineEnd the screen line index of the targeting line, that is
 	// the end line to render in the targeting line (end with)
 	void renderImpl_drawLinePartialEnd(u32 lineIndex, u32 yPos, u32 lineEnd) {
-		renderImpl_drawLinePartial(lineIndex, yPos, 0, lineEnd);
+		Coord pos{ 0, static_cast<int>(yPos) };
+		if (m_lineBuffer[lineIndex].isUserInput()) {
+			renderImpl_drawStr(m_userInputHeaderStr, pos);
+			pos.x = m_userInputHeaderStr.size();
+		}
+		renderImpl_drawLinePartial(lineIndex, pos, 0, lineEnd);
 	}
 	// @param lineBegin the screen line index of the targeting line, that is
 	// the begin line to render in the targeting line (start at)
 	// @param lineEnd the screen line index of the targeting line, that is
 	// the end line to render in the targeting line (end with)
-	void renderImpl_drawLinePartial(u32 lineIndex, u32 yPos, u32 lineBegin, u32 lineEnd) {
-		Coord cursor{ 0, static_cast<int>(yPos) };
+	void renderImpl_drawLinePartial(u32 lineIndex, Coord pos,
+	                                u32 lineBegin = 0, u32 lineEnd = u32{ 0xFF }) {
 		std::string_view str = getLineStr(lineIndex);
 		u32 beginIndex = lineBegin * m_gridSpanDimension.x;
 		u32 endIndex = std::min(static_cast<u32>(str.size()),
 		                        lineEnd * m_gridSpanDimension.x);
-		for (u32 i = beginIndex; i < endIndex; i++) {
-			renderImpl_drawChar(cursor, str[i]);
+		str = std::string_view(str.begin() + beginIndex, str.begin() + endIndex);
+		renderImpl_drawStr(str, pos);
+	}
+	void renderImpl_drawStr(std::string_view str, Coord pos) {
+		Coord cursor = pos;
+		for (char i : str) {
+			renderImpl_drawChar(cursor, i);
 			renderImpl_cursorMoveRight(cursor);
 		}
 	}
@@ -1553,6 +1581,8 @@ private:
 		    screenLineIndex,
 		    m_lhCacheState.bottomLineEnd);
 	}
+
+
 
 private:
 	// =========================================

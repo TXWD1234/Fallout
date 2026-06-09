@@ -17,12 +17,28 @@ terminal::Font FontObject{
 	.bitmapData = std::span<u8>(FontData, FontDataSize)
 };
 
+static constexpr u32 stringHash_impl(std::string_view str) {
+	u32 hash = 2166136261u;
+	for (char c : str) hash = (hash ^ c) * 16777619u;
+	return hash;
+}
 
 class MainClass {
 public:
 	MainClass()
 	    : m_terminal(FontObject, Coord{ 48, 16 }) {
 		startup_impl();
+	}
+
+
+	// must be called immediately at startup
+	static void init() {
+		esp::PowerManager::init(PowerPin);
+		esp::PowerManager::power_on();
+	}
+	// must be called no earlier then the very end of the main function
+	static void terminate() {
+		esp::PowerManager::power_off();
 	}
 
 
@@ -69,20 +85,10 @@ private:
 	} m_state;
 
 	void startup_impl() {
-		initFirmware_impl();
-		initProgram_impl();
+		init_impl();
 	}
 
-	// must be called immediately at startup
-	void initFirmware_impl() {
-		// DevNote: turn on power
-		esp::PowerManager::init(PowerPin);
-		esp::PowerManager::power_on();
-	}
-
-	void initProgram_impl() {
-
-
+	void init_impl() {
 		tx::csl::Evaluator::setRegisterFileMemory(m_buffers.registerFile.span());
 
 		m_terminal.setInputCallback([&](std::string_view str) {
@@ -91,6 +97,8 @@ private:
 		m_terminal.setUserInputHeader(UserInputHeaderStr);
 		m_terminal.startInputSession();
 	}
+	// there is not an uninit function because there is nothing no uninit
+
 
 	// ============================================
 	// **************** Core Logic ****************
@@ -102,6 +110,19 @@ private:
 	}
 
 	void handleInput_impl() {
+		std::string_view cmdStr = m_state.userInputStr.substr(
+		    0, m_state.userInputStr.find(' '));
+
+		switch (stringHash_impl(cmdStr)) {
+		case stringHash_impl("exit"):
+			handleCommand_exit();
+			break;
+		default:
+			handleCSLExpression();
+		};
+	}
+
+	void handleCSLExpression() {
 		csl::Expression expr{
 			m_buffers.commandBuffer.span(),
 			m_buffers.constantBuffer.span(),
@@ -120,6 +141,10 @@ private:
 
 		m_terminal.printStatic(
 		    Log::EvaluateFailure[enumval(result.err)]);
+	}
+
+	void handleCommand_exit() {
+		m_state.shouldTerminate = true;
 	}
 };
 } // namespace tx::compute

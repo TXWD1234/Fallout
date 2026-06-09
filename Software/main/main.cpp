@@ -17,6 +17,10 @@
 #include "tx/compute.h"
 
 extern "C" void app_main(void) {
-	tx::compute::MainClass application;
-	application.run();
+	tx::compute::MainClass::init();
+	{
+		tx::compute::MainClass application;
+		application.run();
+	}
+	tx::compute::MainClass::terminate();
 }
